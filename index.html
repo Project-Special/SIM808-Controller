@@ -1,0 +1,3141 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SIM808 Controller</title>
+  <meta name="theme-color" content="#238636" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="SIM808" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface2: #21262d;
+      --border: #30363d;
+      --accent: #238636;
+      --accent-hover: #2ea043;
+      --danger: #da3633;
+      --warn: #d29922;
+      --info: #1f6feb;
+      --text: #c9d1d9;
+      --text-dim: #8b949e;
+      --green: #3fb950;
+      --yellow: #e3b341;
+      --red: #f85149;
+      --mono: 'Courier New', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 14px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* HEADER */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    header h1 {
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-left: auto;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--red);
+      transition: background 0.3s;
+    }
+
+    .dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .dot.connecting { background: var(--yellow); animation: pulse 1s infinite; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    /* LAYOUT */
+    .layout {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: row;
+      overflow: hidden;
+    }
+
+    /* SIDEBAR */
+    .sidebar {
+      width: 260px;
+      flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+    }
+
+    .sidebar-section {
+      border-bottom: 1px solid var(--border);
+      padding: 10px 12px;
+    }
+
+    .sidebar-section h2 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-dim);
+      margin-bottom: 8px;
+    }
+
+    .cmd-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 7px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      margin-bottom: 4px;
+      transition: all 0.15s;
+      text-align: left;
+    }
+
+    .cmd-btn:hover { background: #2d333b; border-color: #58a6ff44; }
+    .cmd-btn:active { transform: scale(0.98); }
+
+    .cmd-btn .icon { font-size: 14px; width: 16px; text-align: center; }
+    .cmd-btn .label { flex: 1; }
+    .cmd-btn .at-cmd { font-family: var(--mono); font-size: 10px; color: var(--text-dim); }
+
+    .cmd-btn.danger { border-color: #da363344; }
+    .cmd-btn.danger:hover { background: #3d1f1f; border-color: var(--danger); }
+    .cmd-btn.success { border-color: #23863644; }
+    .cmd-btn.success:hover { background: #1a2f1a; border-color: var(--accent); }
+    .cmd-btn.warn { border-color: #d2992244; }
+    .cmd-btn.warn:hover { background: #2d2011; border-color: var(--warn); }
+    .cmd-btn.info { border-color: #1f6feb44; }
+    .cmd-btn.info:hover { background: #111d2c; border-color: var(--info); }
+
+    /* MAIN AREA */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-height: 0;
+      min-width: 0;
+    }
+
+    /* TABS */
+    .tabs {
+      display: flex;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 8px 16px 6px;
+      gap: 8px;
+      flex-shrink: 0;
+      overflow-x: auto;
+    }
+
+    .tab {
+      padding: 8px 14px;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--text-dim);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface2);
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+
+    .tab:hover {
+      color: var(--text);
+      border-color: #58a6ff55;
+      background: #2a313a;
+    }
+    .tab.active {
+      color: var(--text);
+      border-color: #58a6ff;
+      background: #1a2533;
+      box-shadow: inset 0 -2px 0 #58a6ff;
+    }
+
+    /* PANELS */
+    .panels {
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .panel {
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+      flex: 1;
+      min-height: 0;
+      min-width: 0;
+    }
+    .panel.active { display: flex; }
+
+    #panel-map {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      padding: 0;
+    }
+
+    #map-wrapper {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+    }
+
+    #leaflet-map {
+      width: 100%;
+      height: 100%;
+      background: #0a0e14;
+    }
+
+    /* TERMINAL */
+    .terminal-wrap {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 16px;
+      background: #0a0e14;
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .log-entry {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 2px;
+      animation: fadeIn 0.2s ease;
+    }
+
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; } }
+
+    .log-time { color: #444c56; flex-shrink: 0; user-select: none; }
+    .log-dir { flex-shrink: 0; font-weight: bold; }
+    .log-dir.tx { color: #58a6ff; }
+    .log-dir.rx { color: var(--green); }
+    .log-dir.sys { color: var(--yellow); }
+    .log-dir.err { color: var(--red); }
+    .log-msg { word-break: break-all; }
+    .log-msg.ok { color: var(--green); }
+    .log-msg.err { color: var(--red); }
+    .log-msg.info { color: var(--yellow); }
+
+    /* INPUT BAR */
+    .input-bar {
+      display: flex;
+      gap: 8px;
+      padding: 10px 16px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .input-bar input {
+      flex: 1;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-family: var(--mono);
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .input-bar input:focus { border-color: #58a6ff66; }
+    .input-bar input::placeholder { color: var(--text-dim); }
+
+    .send-btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      transition: background 0.15s;
+    }
+
+    .send-btn:hover { background: var(--accent-hover); }
+
+    .clear-btn {
+      background: var(--surface2);
+      color: var(--text-dim);
+      border: 1px solid var(--border);
+      padding: 8px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.15s;
+    }
+
+    .clear-btn:hover { color: var(--text); border-color: #58a6ff44; }
+
+    /* GPS PANEL */
+    .gps-panel {
+      flex: 1;
+      height: 100%;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      overflow-y: auto;
+    }
+
+    .gps-fix-banner {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 16px;
+    }
+
+    .fix-indicator {
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      background: var(--red);
+      flex-shrink: 0;
+      transition: background 0.4s;
+      box-shadow: 0 0 0 0 transparent;
+    }
+
+    .fix-indicator.fix {
+      background: var(--green);
+      box-shadow: 0 0 8px var(--green);
+      animation: none;
+    }
+
+    .fix-indicator.nofix { animation: pulse 1.2s infinite; }
+
+    .fix-banner-text { flex: 1; }
+    .fix-banner-title { font-size: 15px; font-weight: 600; }
+    .fix-banner-sub   { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+
+    .gps-section-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .gps-raw-box {
+      background: #0a0e14;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-dim);
+      word-break: break-all;
+      line-height: 1.7;
+    }
+
+    .gps-raw-box .raw-label { color: #58a6ff; font-weight: bold; }
+
+    .field-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .field-table tr { border-bottom: 1px solid #21262d; }
+    .field-table tr:last-child { border-bottom: none; }
+    .field-table td { padding: 5px 8px; }
+    .field-table .f-idx  { color: var(--text-dim); width: 28px; text-align: right; font-family: var(--mono); }
+    .field-table .f-name { color: #58a6ff; width: 160px; }
+    .field-table .f-raw  { font-family: var(--mono); color: var(--text-dim); width: 130px; }
+    .field-table .f-dec  { color: var(--text); font-weight: 500; }
+    .field-table tr.f-highlight .f-dec { color: var(--green); }
+    .field-table tr.f-warn .f-dec { color: var(--yellow); }
+    .field-table tr.f-err .f-dec  { color: var(--red); }
+
+    .view-toggle {
+      padding: 5px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text-dim);
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.15s;
+    }
+    .view-toggle:hover { color: var(--text); border-color: #58a6ff44; }
+    .view-toggle.active { background: #1f6feb33; border-color: #1f6feb; color: #58a6ff; }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 10px;
+    }
+
+    .info-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+    }
+
+    .info-card .card-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+    }
+
+    .info-card .card-value {
+      font-family: var(--mono);
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .info-card .card-value.big { font-size: 24px; }
+    .info-card .card-unit { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+
+    .info-card.highlight { border-color: #58a6ff44; background: #111d2c; }
+    .info-card.highlight .card-value { color: #58a6ff; }
+
+    /* MAP PLACEHOLDER */
+    .map-box {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      height: 220px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 8px;
+      color: var(--text-dim);
+      font-size: 13px;
+    }
+
+    .map-box .map-icon { font-size: 32px; }
+
+    .map-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 4px;
+      color: #58a6ff;
+      text-decoration: none;
+      font-size: 13px;
+      padding: 6px 14px;
+      border: 1px solid #1f6feb44;
+      border-radius: 6px;
+      transition: all 0.15s;
+    }
+
+    .map-link:hover { background: #111d2c; }
+
+    /* SMS PANEL */
+    .sms-panel {
+      flex: 1;
+      height: 100%;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      align-items: stretch;
+      gap: 12px;
+      overflow-y: auto;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .form-group label {
+      font-size: 12px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      resize: vertical;
+      transition: border-color 0.15s;
+    }
+
+    .form-group input:focus,
+    .form-group textarea:focus { border-color: #58a6ff66; }
+
+    .form-row {
+      display: flex;
+      gap: 10px;
+    }
+
+    .form-row .form-group { flex: 1; }
+
+    .action-btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 9px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      transition: background 0.15s;
+      align-self: flex-start;
+    }
+
+    .action-btn:hover { background: var(--accent-hover); }
+    .action-btn.secondary {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .action-btn.secondary:hover { border-color: #58a6ff44; }
+
+    /* SIGNAL PANEL */
+    .signal-panel {
+      flex: 1;
+      height: 100%;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      overflow-y: auto;
+    }
+
+    /* HTTP PANEL */
+    .http-panel {
+      flex: 1;
+      height: 100%;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      overflow-y: auto;
+    }
+
+    .http-response {
+      flex: 1;
+      min-height: 160px;
+      background: #0a0e14;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text);
+      white-space: pre-wrap;
+      word-break: break-word;
+      overflow: auto;
+    }
+
+    /* BLUETOOTH PANEL */
+    .bt-panel {
+      flex: 1;
+      height: 100%;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      overflow-y: auto;
+    }
+
+    .bt-console {
+      flex: 1;
+      min-height: 160px;
+      background: #0a0e14;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text);
+      white-space: pre-wrap;
+      word-break: break-word;
+      overflow: auto;
+    }
+
+    .signal-bars {
+      display: flex;
+      align-items: flex-end;
+      gap: 4px;
+      height: 40px;
+    }
+
+    .bar {
+      width: 14px;
+      border-radius: 3px 3px 0 0;
+      background: var(--border);
+      transition: background 0.3s, height 0.3s;
+    }
+
+    .bar.active { background: var(--green); }
+
+    /* SCROLLBAR */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #484f58; }
+
+    /* SERIAL CONNECTION */
+    .conn-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    .conn-bar select,
+    .conn-bar input[type=number] {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 5px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      outline: none;
+    }
+
+    .conn-btn {
+      padding: 5px 14px;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      transition: all 0.15s;
+    }
+
+    .conn-btn.connect { background: var(--accent); color: #fff; }
+    .conn-btn.connect:hover { background: var(--accent-hover); }
+    .conn-btn.disconnect { background: var(--danger); color: #fff; }
+
+    .conn-label { font-size: 12px; color: var(--text-dim); }
+
+    /* TOOLTIP */
+    [title] { cursor: help; }
+  </style>
+</head>
+<body>
+
+<header>
+  <span style="font-size:20px;">📡</span>
+  <h1>SIM808 Controller</h1>
+  <div class="status-badge">
+    <div class="dot" id="statusDot"></div>
+    <span id="statusText">Desconectado</span>
+  </div>
+</header>
+
+<!-- CONNECTION BAR -->
+<div class="conn-bar">
+  <span class="conn-label">Interface:</span>
+  <select id="connMode" onchange="onConnModeChange()">
+    <option value="serial" selected>Serial (USB/COM)</option>
+    <option value="bluetooth">Bluetooth (BLE UART)</option>
+    <option value="websocket">WebSocket Bridge (BT Clássico)</option>
+  </select>
+  <span class="conn-label">Porta:</span>
+  <select id="portSelect">
+    <option value="">-- selecionar --</option>
+    <option>COM1</option><option>COM2</option><option>COM3</option>
+    <option>COM4</option><option>COM5</option><option>COM6</option>
+    <option>COM7</option><option>COM8</option>
+  </select>
+  <span class="conn-label">Baud:</span>
+  <select id="baudSelect">
+    <option selected>9600</option><option>115200</option>
+    <option>57600</option><option>38400</option>
+  </select>
+  <span class="conn-label" id="wsUrlLabel" style="display:none;">URL:</span>
+  <input id="wsUrlInput" type="text" value="ws://127.0.0.1:8765" style="display:none;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:5px 10px;border-radius:6px;font-size:12px;outline:none;width:180px;" />
+  <button class="conn-btn connect" id="connectBtn" onclick="toggleConnect()">Conectar</button>
+  <button class="conn-btn" id="detectBtn" style="background:var(--surface2);border:1px solid var(--border);color:var(--text-dim);" onclick="requestPorts()">🔍 Detectar Portas</button>
+  <span class="conn-label" id="connInfo" style="margin-left:auto;"></span>
+</div>
+
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+
+    <div class="sidebar-section">
+      <h2>Básico</h2>
+      <button class="cmd-btn" onclick="send('AT')">
+        <span class="icon">🔔</span>
+        <span class="label">Ping</span>
+        <span class="at-cmd">AT</span>
+      </button>
+      <button class="cmd-btn" onclick="send('ATI')">
+        <span class="icon">ℹ️</span>
+        <span class="label">Info do módulo</span>
+        <span class="at-cmd">ATI</span>
+      </button>
+      <button class="cmd-btn" onclick="send('AT+CGSN')">
+        <span class="icon">🔢</span>
+        <span class="label">IMEI</span>
+        <span class="at-cmd">AT+CGSN</span>
+      </button>
+      <button class="cmd-btn" onclick="send('AT+CIMI')">
+        <span class="icon">💳</span>
+        <span class="label">IMSI do SIM</span>
+        <span class="at-cmd">AT+CIMI</span>
+      </button>
+      <button class="cmd-btn" onclick="send('AT+CCID')">
+        <span class="icon">🪪</span>
+        <span class="label">ICCID do SIM</span>
+        <span class="at-cmd">AT+CCID</span>
+      </button>
+    </div>
+
+    <div class="sidebar-section">
+      <h2>Rede GSM</h2>
+      <button class="cmd-btn info" onclick="send('AT+CPIN?')">
+        <span class="icon">🔐</span>
+        <span class="label">Status do SIM</span>
+        <span class="at-cmd">AT+CPIN?</span>
+      </button>
+      <button class="cmd-btn info" onclick="send('AT+CSMINS?')">
+        <span class="icon">💾</span>
+        <span class="label">SIM inserido?</span>
+        <span class="at-cmd">AT+CSMINS?</span>
+      </button>
+      <button class="cmd-btn info" onclick="send('AT+CGATT?')">
+        <span class="icon">🌐</span>
+        <span class="label">GPRS Attach</span>
+        <span class="at-cmd">AT+CGATT?</span>
+      </button>
+      <button class="cmd-btn info" onclick="send('AT+CREG?')">
+        <span class="icon">📶</span>
+        <span class="label">Status de registro</span>
+        <span class="at-cmd">AT+CREG?</span>
+      </button>
+      <button class="cmd-btn info" onclick="send('AT+CSQ')">
+        <span class="icon">📊</span>
+        <span class="label">Qualidade do sinal</span>
+        <span class="at-cmd">AT+CSQ</span>
+      </button>
+      <button class="cmd-btn info" onclick="send('AT+COPS?')">
+        <span class="icon">🏢</span>
+        <span class="label">Operadora</span>
+        <span class="at-cmd">AT+COPS?</span>
+      </button>
+      <button class="cmd-btn info" onclick="send('AT+CBAND?')">
+        <span class="icon">📻</span>
+        <span class="label">Banda GSM</span>
+        <span class="at-cmd">AT+CBAND?</span>
+      </button>
+    </div>
+
+    <div class="sidebar-section">
+      <h2>Bluetooth</h2>
+      <button class="cmd-btn info" onclick="send('AT+BTPOWER=1')">
+        <span class="icon">🟦</span>
+        <span class="label">Ligar Bluetooth</span>
+        <span class="at-cmd">AT+BTPOWER=1</span>
+      </button>
+      <button class="cmd-btn danger" onclick="send('AT+BTPOWER=0')">
+        <span class="icon">⬛</span>
+        <span class="label">Desligar Bluetooth</span>
+        <span class="at-cmd">AT+BTPOWER=0</span>
+      </button>
+      <button class="cmd-btn" onclick="send('AT+BTSTATUS?')">
+        <span class="icon">📶</span>
+        <span class="label">Status Bluetooth</span>
+        <span class="at-cmd">AT+BTSTATUS?</span>
+      </button>
+      <button class="cmd-btn" onclick="send('AT+BTVIS=1')">
+        <span class="icon">👁️</span>
+        <span class="label">Visível (pairing)</span>
+        <span class="at-cmd">AT+BTVIS=1</span>
+      </button>
+      <button class="cmd-btn" onclick="send('AT+BTVIS=0')">
+        <span class="icon">🙈</span>
+        <span class="label">Ocultar dispositivo</span>
+        <span class="at-cmd">AT+BTVIS=0</span>
+      </button>
+      <button class="cmd-btn" onclick="send('AT+BTPAIRCFG=1,0000')">
+        <span class="icon">🔑</span>
+        <span class="label">PIN fixo 0000</span>
+        <span class="at-cmd">AT+BTPAIRCFG=1,0000</span>
+      </button>
+      <button class="cmd-btn success" onclick="send('AT+BTPAIR=1,1')">
+        <span class="icon">✅</span>
+        <span class="label">Aceitar pareamento</span>
+        <span class="at-cmd">AT+BTPAIR=1,1</span>
+      </button>
+      <button class="cmd-btn danger" onclick="send('AT+BTPAIR=1,0')">
+        <span class="icon">❌</span>
+        <span class="label">Rejeitar pareamento</span>
+        <span class="at-cmd">AT+BTPAIR=1,0</span>
+      </button>
+      <button class="cmd-btn" onclick="send('AT+BTPAIR=2,0000')">
+        <span class="icon">🧷</span>
+        <span class="label">Enviar passkey 0000</span>
+        <span class="at-cmd">AT+BTPAIR=2,0000</span>
+      </button>
+      <button class="cmd-btn warn" onclick="send('AT+BTUNPAIR=0')">
+        <span class="icon">🗂️</span>
+        <span class="label">Limpar pareados</span>
+        <span class="at-cmd">AT+BTUNPAIR=0</span>
+      </button>
+      <button class="cmd-btn info" onclick="btCheckSppForPC()">
+        <span class="icon">🧪</span>
+        <span class="label">Verificar SPP (PC)</span>
+        <span class="at-cmd">AT+BTGETPROF</span>
+      </button>
+      <button class="cmd-btn info" onclick="btTestPCProfile()">
+        <span class="icon">🖥️</span>
+        <span class="label">Testar PC (P:3)</span>
+        <span class="at-cmd">AT+BTGETPROF=3</span>
+      </button>
+    </div>
+
+    <div class="sidebar-section">
+      <h2>HTTP</h2>
+      <button class="cmd-btn info" onclick="httpInit()">
+        <span class="icon">🌍</span>
+        <span class="label">Inicializar HTTP</span>
+        <span class="at-cmd">AT+HTTPINIT</span>
+      </button>
+      <button class="cmd-btn info" onclick="send('AT+HTTPPARA=&quot;CID&quot;,1')">
+        <span class="icon">🔌</span>
+        <span class="label">Definir CID=1</span>
+        <span class="at-cmd">AT+HTTPPARA="CID",1</span>
+      </button>
+      <button class="cmd-btn info" onclick="promptHttpURL()">
+        <span class="icon">🔗</span>
+        <span class="label">Definir URL</span>
+        <span class="at-cmd">AT+HTTPPARA="URL","..."</span>
+      </button>
+      <button class="cmd-btn info" onclick="httpAction(0)">
+        <span class="icon">⬇️</span>
+        <span class="label">HTTP GET</span>
+        <span class="at-cmd">AT+HTTPACTION=0</span>
+      </button>
+      <button class="cmd-btn info" onclick="httpAction(1)">
+        <span class="icon">⬆️</span>
+        <span class="label">HTTP POST</span>
+        <span class="at-cmd">AT+HTTPACTION=1</span>
+      </button>
+      <button class="cmd-btn info" onclick="send('AT+HTTPREAD')">
+        <span class="icon">📄</span>
+        <span class="label">Ler resposta</span>
+        <span class="at-cmd">AT+HTTPREAD</span>
+      </button>
+      <button class="cmd-btn danger" onclick="send('AT+HTTPTERM')">
+        <span class="icon">🧹</span>
+        <span class="label">Finalizar HTTP</span>
+        <span class="at-cmd">AT+HTTPTERM</span>
+      </button>
+    </div>
+
+    <div class="sidebar-section">
+      <h2>GPS / GNSS</h2>
+      <button class="cmd-btn success" onclick="gpsOn();showTab('gps','gps')">
+        <span class="icon">▶️</span>
+        <span class="label">Ligar GPS</span>
+        <span class="at-cmd">AT+CGNSPWR=1</span>
+      </button>
+      <button class="cmd-btn danger" onclick="gpsOff();showTab('gps','gps')">
+        <span class="icon">⏹️</span>
+        <span class="label">Desligar GPS</span>
+        <span class="at-cmd">AT+CGNSPWR=0</span>
+      </button>
+      <button class="cmd-btn" onclick="send('AT+CGNSINF');showTab('gps','gps')">
+        <span class="icon">📍</span>
+        <span class="label">Dados GPS</span>
+        <span class="at-cmd">AT+CGNSINF</span>
+      </button>
+      <button class="cmd-btn" onclick="send('AT+CGNSURC=1');showTab('gps','gps')">
+        <span class="icon">🔄</span>
+        <span class="label">GPS Auto-report</span>
+        <span class="at-cmd">AT+CGNSURC=1</span>
+      </button>
+      <button class="cmd-btn" onclick="send('AT+CGPSSTATUS?');showTab('gps','gps')">
+        <span class="icon">🛰️</span>
+        <span class="label">Status GPS</span>
+        <span class="at-cmd">AT+CGPSSTATUS?</span>
+      </button>
+    </div>
+
+    <div class="sidebar-section">
+      <h2>SMS</h2>
+      <button class="cmd-btn" onclick="send('AT+CMGF=1')">
+        <span class="icon">📝</span>
+        <span class="label">Modo texto</span>
+        <span class="at-cmd">AT+CMGF=1</span>
+      </button>
+      <button class="cmd-btn" onclick="send('AT+CNMI=2,1,0,0,0')">
+        <span class="icon">🔔</span>
+        <span class="label">SMS em tempo real ON</span>
+        <span class="at-cmd">AT+CNMI=2,1,0,0,0</span>
+      </button>
+      <button class="cmd-btn" onclick="send('AT+CNMI=0,0,0,0,0')">
+        <span class="icon">🔕</span>
+        <span class="label">SMS em tempo real OFF</span>
+        <span class="at-cmd">AT+CNMI=0,0,0,0,0</span>
+      </button>
+      <button class="cmd-btn" onclick="send('AT+CMGL=&quot;ALL&quot;')">
+        <span class="icon">📥</span>
+        <span class="label">Listar SMSs</span>
+        <span class="at-cmd">AT+CMGL</span>
+      </button>
+      <button class="cmd-btn" onclick="send('AT+CMGD=1,4')">
+        <span class="icon">🗑️</span>
+        <span class="label">Apagar todos SMSs</span>
+        <span class="at-cmd">AT+CMGD</span>
+      </button>
+    </div>
+
+    <div class="sidebar-section">
+      <h2>Chamadas</h2>
+      <button class="cmd-btn warn" onclick="promptCall()">
+        <span class="icon">📞</span>
+        <span class="label">Fazer chamada</span>
+        <span class="at-cmd">ATD</span>
+      </button>
+      <button class="cmd-btn" onclick="send('AT+CLCC')">
+        <span class="icon">📋</span>
+        <span class="label">Listar chamadas</span>
+        <span class="at-cmd">AT+CLCC</span>
+      </button>
+      <button class="cmd-btn danger" onclick="send('ATH')">
+        <span class="icon">📵</span>
+        <span class="label">Desligar chamada</span>
+        <span class="at-cmd">ATH</span>
+      </button>
+      <button class="cmd-btn success" onclick="send('ATA')">
+        <span class="icon">✅</span>
+        <span class="label">Atender chamada</span>
+        <span class="at-cmd">ATA</span>
+      </button>
+    </div>
+
+    <div class="sidebar-section">
+      <h2>Energia</h2>
+      <button class="cmd-btn" onclick="send('AT+CBC')">
+        <span class="icon">🔋</span>
+        <span class="label">Bateria</span>
+        <span class="at-cmd">AT+CBC</span>
+      </button>
+      <button class="cmd-btn danger" onclick="confirmReset()">
+        <span class="icon">🔁</span>
+        <span class="label">Reset módulo</span>
+        <span class="at-cmd">AT+CFUN=1,1</span>
+      </button>
+      <button class="cmd-btn" onclick="send('AT+CCLK?')">
+        <span class="icon">🕐</span>
+        <span class="label">Ler Data/Hora</span>
+        <span class="at-cmd">AT+CCLK?</span>
+      </button>
+      <button class="cmd-btn success" onclick="syncClock()">
+        <span class="icon">🔄</span>
+        <span class="label">Sincronizar com PC</span>
+        <span class="at-cmd">AT+CCLK=</span>
+      </button>
+      <button class="cmd-btn warn" onclick="promptClock()">
+        <span class="icon">✏️</span>
+        <span class="label">Ajustar manualmente</span>
+        <span class="at-cmd">AT+CCLK=</span>
+      </button>
+    </div>
+
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- TABS -->
+    <div class="tabs">
+      <div class="tab active" onclick="showTab('terminal', this)">Terminal</div>
+      <div class="tab" onclick="showTab('gps', this)">GPS</div>
+      <div class="tab" onclick="showTab('sms', this)">SMS</div>
+      <div class="tab" onclick="showTab('signal', this)">Sinal</div>
+      <div class="tab" onclick="showTab('map', this)">Mapa</div>
+      <div class="tab" onclick="showTab('http', this)">HTTP</div>
+      <div class="tab" onclick="showTab('bluetooth', this)">Bluetooth</div>
+    </div>
+
+    <div class="panels">
+
+      <!-- TERMINAL PANEL -->
+      <div class="panel active" id="panel-terminal">
+        <div class="terminal-wrap" id="terminal"></div>
+        <div class="input-bar">
+          <input id="cmdInput" type="text" placeholder="Digite um comando AT... (Enter para enviar)"
+            onkeydown="handleKey(event)" autocomplete="off" />
+          <button class="send-btn" onclick="sendFromInput()">Enviar</button>
+          <button class="clear-btn" onclick="clearTerminal()">Limpar</button>
+        </div>
+      </div>
+
+      <!-- GPS PANEL -->
+      <div class="panel" id="panel-gps">
+        <div class="gps-panel">
+
+          <!-- STATUS BANNER -->
+          <div class="gps-fix-banner">
+            <div class="fix-indicator nofix" id="gps-fix-dot"></div>
+            <div class="fix-banner-text">
+              <div class="fix-banner-title" id="gps-fix-title">Aguardando GPS...</div>
+              <div class="fix-banner-sub"  id="gps-fix-sub">Nenhum dado recebido</div>
+            </div>
+            <a class="map-link" id="mapLink" href="#" target="_blank" style="display:none;">📍 Maps</a>
+          </div>
+
+          <!-- PAINEL DECODIFICADO -->
+          <div id="gps-view-decoded">
+
+          <!-- POSIÇÃO + MOVIMENTO -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+
+            <div>
+              <div class="gps-section-title">Posição</div>
+              <div class="info-grid" style="grid-template-columns:1fr 1fr;">
+                <div class="info-card highlight">
+                  <div class="card-label">Latitude</div>
+                  <div class="card-value" id="gps-lat" style="font-size:17px;">--</div>
+                  <div class="card-unit" id="gps-lat-dms">--</div>
+                </div>
+                <div class="info-card highlight">
+                  <div class="card-label">Longitude</div>
+                  <div class="card-value" id="gps-lon" style="font-size:17px;">--</div>
+                  <div class="card-unit" id="gps-lon-dms">--</div>
+                </div>
+                <div class="info-card">
+                  <div class="card-label">Altitude MSL</div>
+                  <div class="card-value" id="gps-alt">--</div>
+                  <div class="card-unit">metros</div>
+                </div>
+                <div class="info-card">
+                  <div class="card-label">Modo Fix</div>
+                  <div class="card-value" id="gps-fixmode" style="font-size:15px;">--</div>
+                  <div class="card-unit">1=nofix 2=2D 3=3D</div>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div class="gps-section-title">Movimento</div>
+              <div class="info-grid" style="grid-template-columns:1fr 1fr;">
+                <div class="info-card">
+                  <div class="card-label">Velocidade</div>
+                  <div class="card-value" id="gps-spd">--</div>
+                  <div class="card-unit">km/h</div>
+                </div>
+                <div class="info-card">
+                  <div class="card-label">Direção (COG)</div>
+                  <div class="card-value" id="gps-cog">--</div>
+                  <div class="card-unit" id="gps-cog-dir">graus (N=0°)</div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- PRECISÃO + SATÉLITES + TEMPO -->
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;">
+
+            <div>
+              <div class="gps-section-title">Precisão DOP</div>
+              <div class="info-grid" style="grid-template-columns:1fr;">
+                <div class="info-card">
+                  <div class="card-label">HDOP</div>
+                  <div class="card-value" id="gps-hdop">--</div>
+                  <div class="card-unit">horizontal</div>
+                </div>
+                <div class="info-card">
+                  <div class="card-label">PDOP</div>
+                  <div class="card-value" id="gps-pdop">--</div>
+                  <div class="card-unit">posição 3D</div>
+                </div>
+                <div class="info-card">
+                  <div class="card-label">VDOP</div>
+                  <div class="card-value" id="gps-vdop">--</div>
+                  <div class="card-unit">vertical</div>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div class="gps-section-title">Satélites</div>
+              <div class="info-grid" style="grid-template-columns:1fr;">
+                <div class="info-card">
+                  <div class="card-label">GPS em Uso</div>
+                  <div class="card-value" id="gps-sat-used">--</div>
+                  <div class="card-unit">satélites</div>
+                </div>
+                <div class="info-card">
+                  <div class="card-label">GPS Visíveis</div>
+                  <div class="card-value" id="gps-sat-view">--</div>
+                  <div class="card-unit">satélites</div>
+                </div>
+                <div class="info-card">
+                  <div class="card-label">GLONASS Visíveis</div>
+                  <div class="card-value" id="gps-glo-view">--</div>
+                  <div class="card-unit">satélites</div>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div class="gps-section-title">Tempo & Sinal</div>
+              <div class="info-grid" style="grid-template-columns:1fr;">
+                <div class="info-card">
+                  <div class="card-label">UTC Data/Hora</div>
+                  <div class="card-value" id="gps-time" style="font-size:13px;">--</div>
+                  <div class="card-unit">GNSS timestamp</div>
+                </div>
+                <div class="info-card">
+                  <div class="card-label">C/N0 máx</div>
+                  <div class="card-value" id="gps-cn0">--</div>
+                  <div class="card-unit">dBHz</div>
+                </div>
+                <div class="info-card">
+                  <div class="card-label">HPA / VPA</div>
+                  <div class="card-value" id="gps-hpa" style="font-size:13px;">-- / --</div>
+                  <div class="card-unit">erro horiz/vert (m)</div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          </div><!-- /gps-view-decoded -->
+
+          <!-- FRAME BRUTO -->
+          <div id="gps-view-raw" style="display:none;">
+            <div class="gps-section-title">Frame +CGNSINF decodificado</div>
+            <div class="gps-raw-box">
+              <span class="raw-label">Último frame: </span><span id="gps-raw-line">nenhum</span>
+            </div>
+            <table class="field-table" id="gps-field-table" style="margin-top:8px;">
+              <thead>
+                <tr style="color:var(--text-dim);font-size:11px;">
+                  <td class="f-idx">#</td>
+                  <td class="f-name">Campo</td>
+                  <td class="f-raw">Valor bruto</td>
+                  <td class="f-dec">Decodificado</td>
+                </tr>
+              </thead>
+              <tbody id="gps-field-tbody">
+                <tr><td colspan="4" style="color:var(--text-dim);padding:10px 8px;">Aguardando AT+CGNSINF...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <!-- /gps-view-raw -->
+
+          <!-- AÇÕES -->
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <button class="action-btn" onclick="send('AT+CGNSINF')">🔄 Atualizar</button>
+            <button class="action-btn secondary" onclick="gpsOn()">▶️ Ligar GPS</button>
+            <button class="action-btn secondary" onclick="gpsOff()">⏹️ Desligar GPS</button>
+
+            <!-- URC: módulo envia sozinho -->
+            <div style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;">
+              <span style="font-size:11px;color:var(--text-dim);">URC módulo:</span>
+              <select id="urcInterval" style="background:transparent;border:none;color:var(--text);font-size:12px;outline:none;">
+                <option value="1">1s</option>
+                <option value="2">2s</option>
+                <option value="5" selected>5s</option>
+                <option value="10">10s</option>
+                <option value="30">30s</option>
+              </select>
+              <button class="conn-btn connect" style="padding:3px 10px;font-size:11px;" onclick="urcStart()" title="AT+CGNSURC=n — módulo envia +UGNSINF automaticamente">ON</button>
+              <button class="conn-btn disconnect" style="padding:3px 10px;font-size:11px;" onclick="urcStop()" title="AT+CGNSURC=0 — para envio automático">OFF</button>
+            </div>
+
+            <!-- Poll app-side -->
+            <button class="action-btn secondary" id="autoGpsBtn" onclick="toggleAutoGPS()" title="App consulta AT+CGNSINF periodicamente">⚡ Poll 5s</button>
+
+            <div style="margin-left:auto;display:flex;gap:6px;">
+              <button class="view-toggle active" id="viewDecoded" onclick="setGpsView('decoded')">📊 Decodificado</button>
+              <button class="view-toggle" id="viewRaw" onclick="setGpsView('raw')">📋 Bruto</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- SMS PANEL -->
+      <div class="panel" id="panel-sms">
+        <div class="sms-panel">
+          <h3 style="font-size:14px;color:var(--text-dim);">Enviar SMS</h3>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Número destino</label>
+              <input type="tel" id="smsNumber" placeholder="+5511999999999" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Mensagem</label>
+            <textarea id="smsMsg" rows="4" placeholder="Digite a mensagem..."></textarea>
+          </div>
+          <div style="display:flex;gap:10px;">
+            <button class="action-btn" onclick="sendSMS()">📤 Enviar SMS</button>
+            <button class="action-btn secondary" onclick="send('AT+CMGL=&quot;ALL&quot;')">📥 Listar SMSs</button>
+            <button class="action-btn secondary" onclick="send('AT+CMGF=1')">Modo Texto ON</button>
+          </div>
+
+          <hr style="border-color:var(--border);margin:8px 0;">
+
+          <h3 style="font-size:14px;color:var(--text-dim);">Recebidos (do Terminal)</h3>
+          <div id="smsLog" style="flex:1;min-height:80px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;font-family:var(--mono);font-size:12px;color:var(--text-dim);overflow-y:auto;">
+            Nenhum SMS recebido ainda.
+          </div>
+        </div>
+      </div>
+
+      <!-- SIGNAL PANEL -->
+      <div class="panel" id="panel-signal">
+        <div class="signal-panel">
+          <div class="info-grid">
+            <div class="info-card highlight">
+              <div class="card-label">RSSI</div>
+              <div class="card-value big" id="sig-rssi">--</div>
+              <div class="card-unit">0–31 (99=desconhecido)</div>
+            </div>
+            <div class="info-card highlight">
+              <div class="card-label">dBm estimado</div>
+              <div class="card-value big" id="sig-dbm">--</div>
+              <div class="card-unit">dBm</div>
+            </div>
+            <div class="info-card">
+              <div class="card-label">Qualidade</div>
+              <div class="card-value" id="sig-qual">--</div>
+              <div class="card-unit">BER (bit error rate)</div>
+            </div>
+            <div class="info-card">
+              <div class="card-label">Operadora</div>
+              <div class="card-value" id="sig-oper" style="font-size:16px;">--</div>
+              <div class="card-unit"></div>
+            </div>
+            <div class="info-card">
+              <div class="card-label">Registro</div>
+              <div class="card-value" id="sig-reg" style="font-size:15px;">--</div>
+              <div class="card-unit">status da rede</div>
+            </div>
+            <div class="info-card">
+              <div class="card-label">Status SIM</div>
+              <div class="card-value" id="sig-sim" style="font-size:15px;">--</div>
+              <div class="card-unit">AT+CPIN / AT+CSMINS</div>
+            </div>
+            <div class="info-card">
+              <div class="card-label">GPRS Attach</div>
+              <div class="card-value" id="sig-gprs" style="font-size:15px;">--</div>
+              <div class="card-unit">AT+CGATT</div>
+            </div>
+          </div>
+
+          <div>
+            <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">Nível de sinal</div>
+            <div class="signal-bars" id="signalBars">
+              <div class="bar" style="height:10px;" id="b1"></div>
+              <div class="bar" style="height:16px;" id="b2"></div>
+              <div class="bar" style="height:22px;" id="b3"></div>
+              <div class="bar" style="height:28px;" id="b4"></div>
+              <div class="bar" style="height:34px;" id="b5"></div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button class="action-btn" onclick="send('AT+CSQ')">📊 Atualizar Sinal</button>
+            <button class="action-btn secondary" onclick="send('AT+COPS?')">🏢 Operadora</button>
+            <button class="action-btn secondary" onclick="send('AT+CREG?')">📶 Registro</button>
+            <button class="action-btn secondary" onclick="toggleAutoSignal()">⚡ Auto (10s)</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- MAPA PANEL -->
+      <div class="panel" id="panel-map">
+
+        <div id="map-wrapper">
+          <!-- infobar e controles flutuam sobre o mapa via z-index -->
+          <div id="map-infobar" style="
+            position:absolute;top:10px;left:50%;transform:translateX(-50%);
+            z-index:1000;background:rgba(22,27,34,0.92);border:1px solid var(--border);
+            border-radius:8px;padding:6px 16px;display:flex;gap:16px;align-items:center;
+            font-size:12px;pointer-events:none;backdrop-filter:blur(4px);white-space:nowrap;">
+            <span id="map-coord" style="color:var(--text);">Aguardando coordenadas...</span>
+            <span id="map-spd"   style="color:var(--text-dim);"></span>
+            <span id="map-sat"   style="color:var(--text-dim);"></span>
+            <span id="map-hdop"  style="color:var(--text-dim);"></span>
+          </div>
+
+          <div id="map-controls" style="
+            position:absolute;bottom:14px;left:50%;transform:translateX(-50%);
+            z-index:1000;display:flex;gap:8px;">
+            <button class="action-btn secondary" onclick="showTab('terminal')">← Voltar</button>
+            <button class="action-btn" onclick="mapFollowToggle()" id="mapFollowBtn">📍 Seguir</button>
+            <button class="action-btn secondary" onclick="mapClearTrack()">🗑️ Limpar rastro</button>
+            <button class="action-btn secondary" onclick="mapFitTrack()">🔲 Ver tudo</button>
+          </div>
+
+          <div id="leaflet-map"></div>
+        </div>
+
+      </div>
+
+      <!-- HTTP PANEL -->
+      <div class="panel" id="panel-http">
+        <div class="http-panel">
+          <h3 style="font-size:14px;color:var(--text-dim);">Cliente HTTP (SIM808)</h3>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>URL</label>
+              <input id="httpUrlInput" type="text" placeholder="https://httpbin.org/get" />
+            </div>
+            <div class="form-group" style="max-width:180px;">
+              <label>Método</label>
+              <select id="httpMethodInput">
+                <option value="0" selected>GET</option>
+                <option value="1">POST</option>
+                <option value="2">HEAD</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button class="action-btn secondary" onclick="httpInit()">HTTPINIT</button>
+            <button class="action-btn secondary" onclick="httpSetURLFromInput()">HTTPPARA URL</button>
+            <button class="action-btn" onclick="httpActionFromPanel()">HTTPACTION</button>
+            <button class="action-btn secondary" onclick="send('AT+HTTPREAD')">HTTPREAD</button>
+            <button class="action-btn secondary" onclick="send('AT+HTTPTERM')">HTTPTERM</button>
+          </div>
+
+          <div class="info-grid" style="grid-template-columns:repeat(4,minmax(130px,1fr));">
+            <div class="info-card">
+              <div class="card-label">Estado</div>
+              <div class="card-value" id="http-state" style="font-size:15px;">Idle</div>
+            </div>
+            <div class="info-card">
+              <div class="card-label">Método</div>
+              <div class="card-value" id="http-method" style="font-size:15px;">GET</div>
+            </div>
+            <div class="info-card">
+              <div class="card-label">Status HTTP</div>
+              <div class="card-value" id="http-status" style="font-size:15px;">--</div>
+            </div>
+            <div class="info-card">
+              <div class="card-label">Bytes</div>
+              <div class="card-value" id="http-bytes" style="font-size:15px;">0</div>
+            </div>
+          </div>
+
+          <div class="form-group" style="flex:1;min-height:0;">
+            <label>Resposta HTTP</label>
+            <div class="http-response" id="http-response">Aguardando HTTPREAD...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- BLUETOOTH PANEL -->
+      <div class="panel" id="panel-bluetooth">
+        <div class="bt-panel">
+          <h3 style="font-size:14px;color:var(--text-dim);">Comunicação Bluetooth (Classic SPP)</h3>
+
+          <div class="form-row">
+            <div class="form-group" style="max-width:160px;">
+              <label>Device ID</label>
+              <input id="bt-device-id" type="number" min="1" placeholder="1" />
+            </div>
+            <div class="form-group" style="max-width:180px;">
+              <label>Link ID</label>
+              <input id="bt-link-id" type="number" min="1" placeholder="1" />
+            </div>
+            <div class="form-group">
+              <label>Payload SPP</label>
+              <input id="bt-spp-data" type="text" placeholder="Mensagem para enviar via SPP" />
+            </div>
+          </div>
+
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button class="action-btn secondary" onclick="send('AT+BTSCAN')">Scan</button>
+            <button class="action-btn secondary" onclick="wsScanChannels()" title="Testa canais RFCOMM 1-5 via bridge Python">🔍 Scan Canais BT</button>
+            <button class="action-btn secondary" onclick="btConnectById()">Conectar</button>
+            <button class="action-btn secondary" onclick="btDisconnectById()">Desconectar</button>
+            <button class="action-btn secondary" onclick="btGetProfiles()">Perfis</button>
+            <button class="action-btn secondary" onclick="send('AT+BTACPT=1')">Aceitar req</button>
+            <button class="action-btn" onclick="btSppSend()">SPP Send</button>
+            <button class="action-btn secondary" onclick="send('AT+BTSPPGET')">SPP Get</button>
+            <button class="action-btn secondary" onclick="clearBtConsole()">Limpar log BT</button>
+            <button class="action-btn secondary" id="btRelayBtn" onclick="btRelayToggle()" title="Serial intercepta +BTSPPDATA e reencaminha resposta via BT SPP">🔁 Relay OFF</button>
+          </div>
+
+          <div class="info-grid" style="grid-template-columns:repeat(4,minmax(140px,1fr));">
+            <div class="info-card">
+              <div class="card-label">Estado BT</div>
+              <div class="card-value" id="bt-state" style="font-size:15px;">--</div>
+            </div>
+            <div class="info-card">
+              <div class="card-label">Visibilidade</div>
+              <div class="card-value" id="bt-visibility" style="font-size:15px;">--</div>
+            </div>
+            <div class="info-card">
+              <div class="card-label">Último link</div>
+              <div class="card-value" id="bt-last-link" style="font-size:15px;">--</div>
+            </div>
+            <div class="info-card">
+              <div class="card-label">Último evento</div>
+              <div class="card-value" id="bt-last-event" style="font-size:13px;">--</div>
+            </div>
+          </div>
+
+          <div class="form-group" style="flex:1;min-height:0;">
+            <label>Eventos / dados BT</label>
+            <div class="bt-console" id="bt-console">Aguardando eventos Bluetooth...</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script>
+// ============================================================
+// STATE
+// ============================================================
+let port = null;
+let reader = null;
+let writer = null;
+let connected = false;
+let cmdHistory = [];
+let historyIdx = -1;
+let autoGPSTimer = null;
+let fixSearchStart = null;
+let autoSignalTimer = null;
+let readBuffer = '';
+let simHttpInited = false;
+let simHttpUrl = 'https://httpbin.org/get';
+let simHttpLastBody = '';
+let httpReadPending = false;
+let simBtPowerOn = false;
+let simBtVisible = false;
+let simBtPairConfigured = false;
+let simBtPairPin = '0000';
+let simBtConnected = false;
+let simBtLinkId = 1;
+// BT Relay Mode — Serial intercepta +BTSPPDATA e reenvia resposta via BTSPPSEND
+let btRelayEnabled = false;
+let btRelayLinkId  = 1;
+let btRelayCaptureActive = false;
+let btRelayRespBuf = [];
+let connectedTransport = null; // 'serial' | 'bluetooth' | 'websocket'
+let wsConn = null;
+let bleDevice = null;
+let bleServer = null;
+let bleService = null;
+let bleTxChar = null;
+let bleRxChar = null;
+
+const BLE_UART_SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+const BLE_UART_TX_CHAR = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'; // write
+const BLE_UART_RX_CHAR = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'; // notify
+const BLE_UART_PROFILES = [
+  {
+    name: 'Nordic UART (NUS)',
+    service: '6e400001-b5a3-f393-e0a9-e50e24dcca9e',
+    tx: '6e400002-b5a3-f393-e0a9-e50e24dcca9e',
+    rx: '6e400003-b5a3-f393-e0a9-e50e24dcca9e'
+  },
+  {
+    name: 'HM-10/CC41 UART',
+    service: '0000ffe0-0000-1000-8000-00805f9b34fb',
+    tx: '0000ffe1-0000-1000-8000-00805f9b34fb',
+    rx: '0000ffe1-0000-1000-8000-00805f9b34fb'
+  }
+];
+
+// ============================================================
+// WEB SERIAL
+// ============================================================
+async function requestPorts() {
+  if (getConnMode() !== 'serial') {
+    log('sys', 'No modo Bluetooth, use "Conectar" para abrir o seletor de dispositivo BLE.', 'info');
+    return;
+  }
+  if (!('serial' in navigator)) {
+    log('sys', 'Web Serial API não suportada. Use Chrome/Edge.', 'err');
+    return;
+  }
+  try {
+    const p = await navigator.serial.requestPort();
+    const info = p.getInfo();
+    const portSel = document.getElementById('portSelect');
+    portSel.innerHTML = '<option value="webserial">WebSerial detectado</option>';
+    portSel.value = 'webserial';
+    window._detectedPort = p;
+    log('sys', `Porta detectada: VID=${info.usbVendorId?.toString(16)} PID=${info.usbProductId?.toString(16)}`, 'info');
+  } catch(e) {
+    log('sys', 'Nenhuma porta selecionada.', 'err');
+  }
+}
+
+async function toggleConnect() {
+  if (connected) {
+    await disconnect();
+  } else {
+    await connect();
+  }
+}
+
+async function connect() {
+  const mode = getConnMode();
+  if (mode === 'bluetooth') {
+    await connectBluetooth();
+  } else if (mode === 'websocket') {
+    await connectWebSocket();
+  } else {
+    await connectSerial();
+  }
+}
+
+async function connectSerial() {
+  if (!('serial' in navigator)) {
+    log('sys', '⚠️ Web Serial API não disponível. Use Google Chrome ou Edge.', 'err');
+    log('sys', 'Modo simulação ativado para demonstração.', 'info');
+    setStatus('connecting');
+    setTimeout(() => {
+      setStatus('connected');
+      connectedTransport = 'serial';
+      log('sys', 'Modo SIMULAÇÃO ativo (sem hardware real).', 'info');
+    }, 800);
+    return;
+  }
+
+  try {
+    setStatus('connecting');
+    const baud = parseInt(document.getElementById('baudSelect').value);
+
+    if (window._detectedPort) {
+      port = window._detectedPort;
+    } else {
+      port = await navigator.serial.requestPort();
+    }
+
+    await port.open({ baudRate: baud, bufferSize: 65536 });
+    connected = true;
+    connectedTransport = 'serial';
+    setStatus('connected');
+    log('sys', `Conectado @ ${baud} baud`, 'info');
+    document.getElementById('connInfo').textContent = 'Serial ativo';
+
+    readBuffer = '';
+    writer = port.writable.getWriter();
+    startReading();
+  } catch (e) {
+    setStatus('disconnected');
+    log('sys', `Erro ao conectar: ${e.message}`, 'err');
+  }
+}
+
+async function connectBluetooth() {
+  if (!('bluetooth' in navigator)) {
+    log('sys', 'Web Bluetooth não suportado neste navegador.', 'err');
+    return;
+  }
+
+  try {
+    setStatus('connecting');
+    const optionalServices = Array.from(new Set(BLE_UART_PROFILES.map(p => p.service)));
+    bleDevice = await navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices
+    });
+    bleDevice.addEventListener('gattserverdisconnected', onBleDisconnected);
+
+    bleServer = await bleDevice.gatt.connect();
+    const profile = await resolveBleUartProfile();
+    if (!profile) {
+      throw new Error('Dispositivo conectado, mas sem serviço BLE UART compatível (NUS/FFE0). Se for Bluetooth Classic/SPP, use modo Serial (porta COM Bluetooth).');
+    }
+
+    connected = true;
+    connectedTransport = 'bluetooth';
+    readBuffer = '';
+    setStatus('connected');
+    document.getElementById('connInfo').textContent = `BLE: ${bleDevice.name || 'dispositivo sem nome'}`;
+    log('sys', `Conectado via BLE: ${bleDevice.name || 'Unknown'} (${profile.name})`, 'info');
+  } catch (e) {
+    setStatus('disconnected');
+    const msg = String(e?.message || e);
+    if (msg.toLowerCase().includes('cancelled') || msg.toLowerCase().includes('canceled')) {
+      log('sys', 'Bluetooth: seleção cancelada pelo usuário.', 'err');
+    } else {
+      log('sys', `Erro Bluetooth: ${msg}`, 'err');
+    }
+  }
+}
+
+async function resolveBleUartProfile() {
+  for (const p of BLE_UART_PROFILES) {
+    try {
+      const svc = await bleServer.getPrimaryService(p.service);
+      const tx = await svc.getCharacteristic(p.tx);
+      const rx = await svc.getCharacteristic(p.rx);
+      const canWrite = tx.properties.write || tx.properties.writeWithoutResponse;
+      if (!canWrite) continue;
+      bleService = svc;
+      bleTxChar = tx;
+      bleRxChar = rx;
+      if (bleRxChar.properties.notify || bleRxChar.properties.indicate) {
+        await bleRxChar.startNotifications();
+        bleRxChar.addEventListener('characteristicvaluechanged', onBleRx);
+      }
+      return p;
+    } catch (_) {
+      // tenta próximo perfil
+    }
+  }
+  return null;
+}
+
+async function connectWebSocket() {
+  const url = (document.getElementById('wsUrlInput')?.value || 'ws://localhost:8765').trim();
+  return new Promise((resolve) => {
+    setStatus('connecting');
+    log('sys', `Conectando ao bridge: ${url}`, 'info');
+    wsConn = new WebSocket(url);
+
+    wsConn.onopen = () => {
+      // pede para o bridge conectar ao SIM808 via BT
+      wsConn.send(JSON.stringify({ type: 'connect_bt' }));
+    };
+
+    wsConn.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === 'status') {
+          if (msg.bt === 'connected') {
+            connected = true;
+            connectedTransport = 'websocket';
+            setStatus('connected');
+            document.getElementById('connInfo').textContent = `WS Bridge → BT ${msg.mac || ''}`;
+            log('sys', `Bridge conectado ao SIM808 (${msg.mac || ''})`, 'info');
+            resolve();
+          } else if (msg.bt === 'error') {
+            setStatus('disconnected');
+            log('sys', `Bridge BT erro: ${msg.error}`, 'err');
+            wsConn.close();
+            resolve();
+          } else if (msg.bt === 'disconnected') {
+            if (connected) {
+              connected = false;
+              connectedTransport = null;
+              setStatus('disconnected');
+              document.getElementById('connInfo').textContent = '';
+              log('sys', 'SIM808 desconectado pelo bridge.', 'err');
+            }
+          }
+        } else if (msg.type === 'rx') {
+          processRx(msg.data + '\n');
+        }
+      } catch (_) {
+        processRx(ev.data + '\n');
+      }
+    };
+
+    wsConn.onerror = () => {
+      setStatus('disconnected');
+      log('sys', `Erro WebSocket. Verifique se sim808_bt.py está rodando.`, 'err');
+      resolve();
+    };
+
+    wsConn.onclose = () => {
+      if (connected && connectedTransport === 'websocket') {
+        connected = false;
+        connectedTransport = null;
+        setStatus('disconnected');
+        document.getElementById('connInfo').textContent = '';
+        log('sys', 'WebSocket fechado.', 'err');
+      } else if (!connected) {
+        // fechou antes de conectar BT — resolve a promise
+        resolve();
+      }
+    };
+  });
+}
+
+async function disconnect() {
+  try {
+    if (connectedTransport === 'serial') {
+      if (reader) { await reader.cancel(); reader = null; }
+      if (writer) { writer.releaseLock(); writer = null; }
+      if (port) { await port.close(); port = null; }
+    } else if (connectedTransport === 'bluetooth') {
+      if (bleRxChar) {
+        try { bleRxChar.removeEventListener('characteristicvaluechanged', onBleRx); } catch(_) {}
+      }
+      if (bleDevice?.gatt?.connected) {
+        bleDevice.gatt.disconnect();
+      }
+      bleTxChar = null;
+      bleRxChar = null;
+      bleService = null;
+      bleServer = null;
+      bleDevice = null;
+    } else if (connectedTransport === 'websocket') {
+      if (wsConn) {
+        wsConn.send(JSON.stringify({ type: 'disconnect_bt' }));
+        wsConn.close();
+        wsConn = null;
+      }
+    }
+  } catch(e) {}
+  connected = false;
+  connectedTransport = null;
+  setStatus('disconnected');
+  document.getElementById('connInfo').textContent = '';
+  log('sys', 'Desconectado.', 'info');
+}
+
+async function startReading() {
+  const decoder = new TextDecoder('utf-8', { fatal: false });
+
+  while (connected) {
+    try {
+      reader = port.readable.getReader();
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (value) processRx(decoder.decode(value, { stream: true }));
+      }
+    } catch (e) {
+      if (!connected) break;
+      log('sys', `Leitura: ${e.message} — reconectando...`, 'info');
+    } finally {
+      try { reader.releaseLock(); } catch(_) {}
+      reader = null;
+    }
+    // aguarda 200ms antes de tentar reabrir o reader
+    if (connected) await delay(200);
+  }
+}
+
+function processRx(chunk) {
+  const normalized = chunk.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  readBuffer += normalized;
+  const lines = readBuffer.split('\n');
+  readBuffer = lines.pop(); // último fragmento incompleto
+
+  lines.forEach(line => {
+    line = line.trim();
+    if (!line) return;
+    logRx(line);
+  });
+}
+
+function getConnMode() {
+  const sel = document.getElementById('connMode');
+  return sel ? sel.value : 'serial';
+}
+
+function onConnModeChange() {
+  const mode = getConnMode();
+  const portSel  = document.getElementById('portSelect');
+  const baudSel  = document.getElementById('baudSelect');
+  const detect   = document.getElementById('detectBtn');
+  const wsLabel  = document.getElementById('wsUrlLabel');
+  const wsInput  = document.getElementById('wsUrlInput');
+  const portLabel = document.querySelector('.conn-bar .conn-label:nth-child(3)');
+  const baudLabel = document.querySelector('.conn-bar .conn-label:nth-child(5)');
+
+  const isWs = mode === 'websocket';
+  const isBle = mode === 'bluetooth';
+
+  if (portSel) portSel.style.display = isWs ? 'none' : '';
+  if (baudSel) baudSel.style.display = isWs ? 'none' : '';
+  if (portLabel) portLabel.style.display = isWs ? 'none' : '';
+  if (baudLabel) baudLabel.style.display = isWs ? 'none' : '';
+  if (wsLabel) wsLabel.style.display = isWs ? '' : 'none';
+  if (wsInput) wsInput.style.display = isWs ? '' : 'none';
+
+  if (isBle) {
+    if (detect) detect.textContent = '🔵 Seleção no Conectar';
+    document.getElementById('connInfo').textContent = 'Modo Bluetooth BLE';
+  } else if (isWs) {
+    if (detect) detect.style.display = 'none';
+    document.getElementById('connInfo').textContent = 'Rode: python sim808_bt.py';
+  } else {
+    if (portSel) portSel.disabled = false;
+    if (baudSel) baudSel.disabled = false;
+    if (detect) { detect.textContent = '🔍 Detectar Portas'; detect.style.display = ''; }
+    document.getElementById('connInfo').textContent = '';
+  }
+}
+
+function onBleRx(ev) {
+  try {
+    const bytes = new Uint8Array(ev.target.value.buffer);
+    const text = new TextDecoder('utf-8').decode(bytes);
+    processRx(text);
+  } catch (e) {
+    log('sys', `Falha RX BLE: ${e.message}`, 'err');
+  }
+}
+
+function onBleDisconnected() {
+  if (!connected || connectedTransport !== 'bluetooth') return;
+  connected = false;
+  connectedTransport = null;
+  bleTxChar = null;
+  bleRxChar = null;
+  bleService = null;
+  bleServer = null;
+  setStatus('disconnected');
+  document.getElementById('connInfo').textContent = '';
+  log('sys', 'Bluetooth desconectado pelo dispositivo remoto.', 'err');
+}
+
+async function sendBleText(text) {
+  if (!bleTxChar) throw new Error('Canal TX BLE indisponível');
+  const raw = new TextEncoder().encode(text);
+  // Muitos módulos BLE aceitam MTU pequeno; envia em blocos curtos.
+  const chunkSize = 20;
+  for (let i = 0; i < raw.length; i += chunkSize) {
+    const chunk = raw.slice(i, i + chunkSize);
+    await bleTxChar.writeValue(chunk);
+    await delay(8);
+  }
+}
+
+async function send(cmd) {
+  if (cmdHistory[0] !== cmd) cmdHistory.unshift(cmd);
+  if (cmdHistory.length > 50) cmdHistory.pop();
+  historyIdx = -1;
+
+  log('tx', cmd);
+
+  if (!connected) {
+    simulateResponse(cmd);
+    return;
+  }
+
+  try {
+    if (connectedTransport === 'serial') {
+      if (!writer) throw new Error('Writer serial indisponível');
+      const data = new TextEncoder().encode(cmd + '\r\n');
+      await writer.write(data);
+    } else if (connectedTransport === 'bluetooth') {
+      await sendBleText(cmd + '\r\n');
+    } else if (connectedTransport === 'websocket') {
+      if (!wsConn || wsConn.readyState !== WebSocket.OPEN) throw new Error('WebSocket fechado');
+      wsConn.send(JSON.stringify({ type: 'send', data: cmd }));
+    } else {
+      throw new Error('Transporte não definido');
+    }
+  } catch(e) {
+    log('sys', `Erro ao enviar: ${e.message}`, 'err');
+  }
+}
+
+// ============================================================
+// SIMULATION
+// ============================================================
+function simulateResponse(cmd) {
+  const c = cmd.toUpperCase().trim();
+  setTimeout(() => {
+    if (c === 'AT') { logRx('OK'); return; }
+    if (c === 'ATI') { logRx('SIM808 R14.18'); logRx('OK'); return; }
+    if (c === 'AT+CGSN') { logRx('863456789012345'); logRx('OK'); return; }
+    if (c === 'AT+CSQ') {
+      const rssi = Math.floor(Math.random()*15)+10;
+      logRx(`+CSQ: ${rssi},0`);
+      logRx('OK');
+      return;
+    }
+    if (c === 'AT+CREG?') { logRx('+CREG: 0,1'); logRx('OK'); return; }
+    if (c === 'AT+CPIN?') { logRx('+CPIN: READY'); logRx('OK'); return; }
+    if (c === 'AT+CSMINS?') { logRx('+CSMINS: 0,1'); logRx('OK'); return; }
+    if (c === 'AT+CGATT?') { logRx('+CGATT: 1'); logRx('OK'); return; }
+    if (c === 'AT+COPS?') { logRx('+COPS: 0,0,"CLARO BR"'); logRx('OK'); return; }
+    if (c === 'AT+CBC') { logRx('+CBC: 0,87,4050'); logRx('OK'); return; }
+    if (c === 'AT+CGNSINF') {
+      const lat = (-23.5505 + (Math.random()-0.5)*0.01).toFixed(6);
+      const lon = (-46.6333 + (Math.random()-0.5)*0.01).toFixed(6);
+      logRx(`+CGNSINF: 1,1,20240101120000.000,${lat},${lon},750.0,0.0,0.0,1,,1.2,1.5,0.9,,8,7,,,32,,`);
+      logRx('OK');
+      return;
+    }
+    if (c === 'AT+CGNSPWR=1') { logRx('OK'); return; }
+    if (c === 'AT+CGNSPWR=0') { logRx('OK'); return; }
+    if (c === 'AT+BTPOWER=1') {
+      simBtPowerOn = true;
+      logRx('OK');
+      return;
+    }
+    if (c === 'AT+BTPOWER=0') {
+      simBtPowerOn = false;
+      simBtVisible = false;
+      simBtConnected = false;
+      logRx('OK');
+      return;
+    }
+    if (c === 'AT+BTSTATUS?') {
+      // 0=Initial/off, 5=Idle/on (resumo útil para teste rápido)
+      logRx(`+BTSTATUS: ${simBtPowerOn ? 5 : 0}`);
+      logRx('OK');
+      return;
+    }
+    if (c === 'AT+BTVIS=1') {
+      if (!simBtPowerOn) { logRx('ERROR'); return; }
+      simBtVisible = true;
+      const vis = document.getElementById('bt-visibility');
+      if (vis) vis.textContent = 'Visível';
+      logRx('OK');
+      return;
+    }
+    if (c === 'AT+BTVIS=0') {
+      if (!simBtPowerOn) { logRx('ERROR'); return; }
+      simBtVisible = false;
+      const vis = document.getElementById('bt-visibility');
+      if (vis) vis.textContent = 'Oculto';
+      logRx('OK');
+      return;
+    }
+    if (c.startsWith('AT+BTPAIRCFG=')) {
+      if (!simBtPowerOn) { logRx('ERROR'); return; }
+      const m = c.match(/AT\+BTPAIRCFG=\s*(\d)\s*,\s*([0-9]{4,16})/);
+      if (!m) { logRx('ERROR'); return; }
+      simBtPairConfigured = true;
+      simBtPairPin = m[2];
+      logRx('OK');
+      return;
+    }
+    if (c === 'AT+BTPAIR=1,1') {
+      if (!simBtPowerOn) { logRx('ERROR'); return; }
+      logRx('+BTPAIR: 1,"PHONE","+11:22:33:44:55:66"');
+      logRx('OK');
+      return;
+    }
+    if (c === 'AT+BTPAIR=1,0') {
+      if (!simBtPowerOn) { logRx('ERROR'); return; }
+      logRx('+BTPAIR: 0');
+      logRx('OK');
+      return;
+    }
+    if (c.startsWith('AT+BTPAIR=2,')) {
+      if (!simBtPowerOn) { logRx('ERROR'); return; }
+      const m = c.match(/AT\+BTPAIR=2,([0-9]{4,16})/);
+      if (!m) { logRx('ERROR'); return; }
+      if (!simBtPairConfigured || m[1] !== simBtPairPin) {
+        logRx('+BTPAIR: 0');
+      } else {
+        logRx('+BTPAIR: 1,"PHONE","+11:22:33:44:55:66"');
+      }
+      logRx('OK');
+      return;
+    }
+    if (c === 'AT+BTUNPAIR=0') {
+      if (!simBtPowerOn) { logRx('ERROR'); return; }
+      logRx('OK');
+      return;
+    }
+    if (c === 'AT+BTSCAN') {
+      if (!simBtPowerOn) { logRx('ERROR'); return; }
+      logRx('+BTSCAN: 1,"PHONE","+11:22:33:44:55:66"');
+      logRx('+BTSCAN: 2,"NOTEBOOK","+AA:BB:CC:DD:EE:FF"');
+      logRx('OK');
+      return;
+    }
+    if (c.startsWith('AT+BTCONNECT=')) {
+      if (!simBtPowerOn) { logRx('ERROR'); return; }
+      const m = c.match(/AT\+BTCONNECT=(\d+)/);
+      simBtLinkId = m ? parseInt(m[1], 10) : 1;
+      simBtConnected = true;
+      logRx(`+BTCONNECT: ${simBtLinkId},"PHONE","+11:22:33:44:55:66","SPP"`);
+      logRx('OK');
+      return;
+    }
+    if (c.startsWith('AT+BTDISCONN=')) {
+      if (!simBtPowerOn) { logRx('ERROR'); return; }
+      simBtConnected = false;
+      logRx('+BTDISCONN: 1');
+      logRx('OK');
+      return;
+    }
+    if (c.startsWith('AT+BTGETPROF=')) {
+      if (!simBtPowerOn) { logRx('ERROR'); return; }
+      logRx('+BTGETPROF: "SPP","HFP"');
+      logRx('OK');
+      return;
+    }
+    if (c === 'AT+BTACPT=1') {
+      if (!simBtPowerOn) { logRx('ERROR'); return; }
+      simBtConnected = true;
+      logRx('+BTCONNECT: 1,"PHONE","+11:22:33:44:55:66","SPP"');
+      logRx('OK');
+      return;
+    }
+    if (c === 'AT+BTSPPGET') {
+      if (!simBtPowerOn || !simBtConnected) { logRx('ERROR'); return; }
+      logRx('+BTSPPDATA: 1,12,HELLO_SIM808');
+      logRx('OK');
+      return;
+    }
+    if (c === 'AT+BTSPPSEND') {
+      if (!simBtPowerOn || !simBtConnected) { logRx('ERROR'); return; }
+      logRx('>');
+      return;
+    }
+    if (c === 'AT+HTTPINIT') {
+      simHttpInited = true;
+      logRx('OK');
+      return;
+    }
+    if (c.startsWith('AT+HTTPPARA=')) {
+      const mUrl = cmd.match(/AT\+HTTPPARA="URL","(.+)"$/i);
+      if (mUrl) simHttpUrl = mUrl[1];
+      logRx('OK');
+      return;
+    }
+    if (c.startsWith('AT+HTTPACTION=')) {
+      if (!simHttpInited) { logRx('ERROR'); return; }
+      const m = c.match(/AT\+HTTPACTION=(\d)/);
+      const method = m ? parseInt(m[1], 10) : 0;
+      const methodName = ({ 0: 'GET', 1: 'POST', 2: 'HEAD' }[method] || 'GET');
+      simHttpLastBody = JSON.stringify({
+        ok: true,
+        method: methodName,
+        url: simHttpUrl,
+        ts: new Date().toISOString()
+      });
+      logRx('OK');
+      setTimeout(() => {
+        logRx(`+HTTPACTION: ${method},200,${simHttpLastBody.length}`);
+      }, 180);
+      return;
+    }
+    if (c === 'AT+HTTPREAD') {
+      if (!simHttpInited) { logRx('ERROR'); return; }
+      const body = simHttpLastBody || '';
+      logRx(`+HTTPREAD: ${body.length}`);
+      if (body) logRx(body);
+      logRx('OK');
+      return;
+    }
+    if (c === 'AT+HTTPTERM') {
+      simHttpInited = false;
+      simHttpLastBody = '';
+      logRx('OK');
+      return;
+    }
+    if (c.startsWith('AT+CGNSURC=')) {
+      const n = parseInt(c.split('=')[1]);
+      logRx('OK');
+      if (n > 0) {
+        log('sys', `[SIM] Simulando URC a cada ${n}s (+UGNSINF)`, 'info');
+        if (window._urcSim) clearInterval(window._urcSim);
+        window._urcSim = setInterval(() => {
+          const lat = (-23.5505 + (Math.random()-0.5)*0.01).toFixed(6);
+          const lon = (-46.6333 + (Math.random()-0.5)*0.01).toFixed(6);
+          logRx(`+UGNSINF: 1,1,20240101120000.000,${lat},${lon},750.0,0.5,90.0,3,,1.1,1.4,0.9,,9,8,2,,38,,`);
+        }, n * 1000);
+      } else {
+        if (window._urcSim) { clearInterval(window._urcSim); window._urcSim = null; }
+        log('sys', '[SIM] URC desativado', 'info');
+      }
+      return;
+    }
+    if (c === 'AT+CMGF=1') { logRx('OK'); return; }
+    if (c === 'AT+CMGF?') { logRx('+CMGF: 1'); logRx('OK'); return; }
+    if (c.startsWith('AT+CNMI=')) {
+      logRx('OK');
+      if (c === 'AT+CNMI=2,1,0,0,0') {
+        log('sys', '[SIM] URC de SMS ativado (+CMTI).', 'info');
+        if (window._cnmiSim) clearInterval(window._cnmiSim);
+        window._cnmiSim = setInterval(() => {
+          const idx = Math.floor(Math.random() * 20) + 1;
+          logRx(`+CMTI: "SM",${idx}`);
+        }, 15000);
+      } else if (c === 'AT+CNMI=0,0,0,0,0') {
+        if (window._cnmiSim) { clearInterval(window._cnmiSim); window._cnmiSim = null; }
+        log('sys', '[SIM] URC de SMS desativado.', 'info');
+      }
+      return;
+    }
+    if (c.startsWith('AT+CMGL')) { logRx('OK'); return; }
+    if (c === 'AT+CIMI') { logRx('724050123456789'); logRx('OK'); return; }
+    if (c === 'AT+CCID') { logRx('+CCID: 8955050000012345678'); logRx('OK'); return; }
+    if (c === 'AT+CCLK?') {
+      const d = new Date();
+      logRx(`+CCLK: "${d.getFullYear()-2000}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getDate().toString().padStart(2,'0')},${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}-03"`);
+      logRx('OK');
+      return;
+    }
+    if (c === 'ATA') { logRx('OK'); return; }
+    if (c === 'ATH') { logRx('OK'); return; }
+    if (c === 'AT+CLCC') {
+      logRx('+CLCC: 1,0,0,0,0,"+5511999999999",145');
+      logRx('OK');
+      return;
+    }
+    if (c === 'AT+CFUN=1,1') { logRx('OK'); logRx('+CPIN: READY'); return; }
+    if (c === 'AT+CBAND?') { logRx('+CBAND: "EGSM_DCS_MODE"'); logRx('OK'); return; }
+    logRx('OK');
+  }, 120 + Math.random()*100);
+}
+
+// ============================================================
+// RESPONSE PARSER
+// ============================================================
+function parseResponse(line) {
+  if (httpReadPending) {
+    if (line === 'OK' || line.startsWith('ERROR') || line.startsWith('+CME ERROR')) {
+      httpReadPending = false;
+      const st = document.getElementById('http-state');
+      if (st) st.textContent = line === 'OK' ? 'Concluído' : 'Erro';
+    } else if (!line.startsWith('+HTTPREAD:')) {
+      appendHttpResponse(line);
+    }
+  }
+
+  // GPS — resposta direta (AT+CGNSINF) ou URC automático (AT+CGNSURC)
+  if (line.startsWith('+CGNSINF:')) parseGNSINF(line);
+  if (line.startsWith('+UGNSINF:')) parseGNSINF(line.replace('+UGNSINF:', '+CGNSINF:'));
+  // Signal
+  if (line.startsWith('+CSQ:')) parseCSQ(line);
+  // Network
+  if (line.startsWith('+CPIN:')) parseCPIN(line);
+  if (line.startsWith('+CSMINS:')) parseCSMINS(line);
+  if (line.startsWith('+CGATT:')) parseCGATT(line);
+  if (line.startsWith('+BTSTATUS:')) parseBTSTATUS(line);
+  if (line.startsWith('+BTSCAN:') || line.startsWith('+BTCONNECT:') || line.startsWith('+BTDISCONN:') || line.startsWith('+BTGETPROF:') || line.startsWith('+BTSPPDATA:') || line.startsWith('+BTPAIR') || line.startsWith('+BTCONNECTING:')) parseBTEvent(line);
+  if (line.startsWith('P:') || line.startsWith('C:')) parseBTEvent(line);
+  if (line.startsWith('+CREG:')) parseCREG(line);
+  if (line.startsWith('+COPS:')) parseCOPS(line);
+  if (line.startsWith('+HTTPACTION:')) parseHTTPACTION(line);
+  if (line.startsWith('+HTTPREAD:')) parseHTTPREAD(line);
+  if (line.startsWith('+CLCC:')) parseCLCC(line);
+  // SMS
+  if (line.startsWith('+CMT:') || line.startsWith('+CMGR:') || line.startsWith('+CMTI:')) parseSMS(line);
+}
+
+// Campos do +CGNSINF (SIM808 AT Command Manual)
+const CGNSINF_FIELDS = [
+  { name: 'GNSS Run Status',         unit: '',     decode: v => v==='1'?'Ligado':'Desligado' },
+  { name: 'Fix Status',              unit: '',     decode: v => v==='1'?'Fix OK':'Sem Fix' },
+  { name: 'UTC Date & Time',         unit: '',     decode: v => formatGPSTime(v) },
+  { name: 'Latitude',                unit: '°',    decode: v => v ? `${parseFloat(v).toFixed(6)}°  (${decToDMS(parseFloat(v),'NS')})` : '--' },
+  { name: 'Longitude',               unit: '°',    decode: v => v ? `${parseFloat(v).toFixed(6)}°  (${decToDMS(parseFloat(v),'EW')})` : '--' },
+  { name: 'Altitude MSL',            unit: 'm',    decode: v => v ? `${parseFloat(v).toFixed(1)} m` : '--' },
+  { name: 'Speed Over Ground',       unit: 'km/h', decode: v => v ? `${(parseFloat(v)*1.852).toFixed(2)} km/h  (${parseFloat(v).toFixed(2)} nós)` : '--' },
+  { name: 'Course Over Ground',      unit: '°',    decode: v => v ? `${parseFloat(v).toFixed(1)}°  ${cogToDir(parseFloat(v))}` : '--' },
+  { name: 'Fix Mode',                unit: '',     decode: v => ({1:'No Fix',2:'2D Fix',3:'3D Fix'}[v]||v||'--') },
+  { name: 'Reserved (9)',            unit: '',     decode: v => v||'--' },
+  { name: 'HDOP',                    unit: '',     decode: v => v ? `${parseFloat(v).toFixed(1)}  (${dopQual(parseFloat(v))})` : '--' },
+  { name: 'PDOP',                    unit: '',     decode: v => v ? `${parseFloat(v).toFixed(1)}  (${dopQual(parseFloat(v))})` : '--' },
+  { name: 'VDOP',                    unit: '',     decode: v => v ? `${parseFloat(v).toFixed(1)}  (${dopQual(parseFloat(v))})` : '--' },
+  { name: 'Reserved (13)',           unit: '',     decode: v => v||'--' },
+  { name: 'GNSS Satellites in View', unit: '',     decode: v => v||'--' },
+  { name: 'GNSS Satellites Used',    unit: '',     decode: v => v||'--' },
+  { name: 'GLONASS Satellites inView',unit:'',     decode: v => v||'--' },
+  { name: 'Reserved (17)',           unit: '',     decode: v => v||'--' },
+  { name: 'C/N0 max',                unit: 'dBHz', decode: v => v ? `${v} dBHz` : '--' },
+  { name: 'HPA',                     unit: 'm',    decode: v => v ? `${parseFloat(v).toFixed(1)} m` : '--' },
+  { name: 'VPA',                     unit: 'm',    decode: v => v ? `${parseFloat(v).toFixed(1)} m` : '--' },
+];
+
+function parseGNSINF(line) {
+  const raw = line.replace('+CGNSINF:', '').trim();
+  const parts = raw.split(',');
+  if (parts.length < 6) return;
+
+  // raw frame display
+  document.getElementById('gps-raw-line').textContent = line;
+
+  const p = idx => (parts[idx] || '').trim();
+
+  const gnssRun  = p(0);
+  const fixSt    = p(1);
+  const utcTime  = p(2);
+  const lat      = p(3);
+  const lon      = p(4);
+  const alt      = p(5);
+  const spd_knot = p(6);
+  const cog      = p(7);
+  const fixMode  = p(8);
+  const hdop     = p(10);
+  const pdop     = p(11);
+  const vdop     = p(12);
+  const satView  = p(14);
+  const satUsed  = p(15);
+  const gloView  = p(16);
+  const cn0      = p(18);
+  const hpa      = p(19);
+  const vpa      = p(20);
+
+  const hasFix = fixSt === '1';
+  const spdKmh = spd_knot ? (parseFloat(spd_knot)*1.852).toFixed(1) : '--';
+
+  // --- Banner ---
+  const dot   = document.getElementById('gps-fix-dot');
+  const title = document.getElementById('gps-fix-title');
+  const sub   = document.getElementById('gps-fix-sub');
+
+  if (gnssRun !== '1') {
+    dot.className = 'fix-indicator nofix';
+    title.textContent = 'GPS Desligado';
+    sub.textContent   = 'Envie AT+CGNSPWR=1 para ligar o módulo GNSS';
+  } else if (!hasFix) {
+    if (!fixSearchStart) fixSearchStart = Date.now();
+    dot.className = 'fix-indicator nofix';
+    const sat = parseInt(satView) || 0;
+    const elapsed = fixSearchStart ? Math.floor((Date.now()-fixSearchStart)/1000)+'s' : '--';
+    title.textContent = `🔍 Buscando Fix... (${elapsed})`;
+    let tip = '';
+    if (sat === 0) tip = ' ⚠️ Nenhum satélite visível — coloque a antena ao céu aberto ou próxima a janela';
+    else if (sat < 4) tip = ` — poucos satélites (${sat}), aguarde ou melhore a posição da antena`;
+    else tip = ` — ${sat} satélites visíveis, aguardando precisão suficiente`;
+    sub.textContent = `Satélites visíveis: ${sat} | Fix mode: ${fixMode||'0'} | Tempo GPS: ${formatGPSTime(utcTime)}${tip}`;
+  } else {
+    fixSearchStart = null; // fix adquirido — reseta timer
+    dot.className = 'fix-indicator fix';
+    title.textContent = `Fix ${({2:'2D',3:'3D'}[fixMode]||'')} — ${lat}, ${lon}`;
+    sub.textContent   = `Alt: ${alt?parseFloat(alt).toFixed(0):'--'} m | Sat: ${satUsed}/${satView} | HDOP: ${hdop} | ${formatGPSTime(utcTime)} UTC`;
+  }
+
+  // --- Posição ---
+  document.getElementById('gps-lat').textContent     = lat ? parseFloat(lat).toFixed(6)+'°' : '--';
+  document.getElementById('gps-lat-dms').textContent = lat ? decToDMS(parseFloat(lat),'NS') : '--';
+  document.getElementById('gps-lon').textContent     = lon ? parseFloat(lon).toFixed(6)+'°' : '--';
+  document.getElementById('gps-lon-dms').textContent = lon ? decToDMS(parseFloat(lon),'EW') : '--';
+  document.getElementById('gps-alt').textContent     = alt ? parseFloat(alt).toFixed(1) : '--';
+  document.getElementById('gps-fixmode').textContent = ({1:'No Fix',2:'2D',3:'3D'}[fixMode]||'--');
+
+  // --- Movimento ---
+  document.getElementById('gps-spd').textContent     = spdKmh;
+  document.getElementById('gps-cog').textContent     = cog ? parseFloat(cog).toFixed(1)+'°' : '--';
+  document.getElementById('gps-cog-dir').textContent = cog ? cogToDir(parseFloat(cog)) : 'graus (N=0°)';
+
+  // --- DOP ---
+  document.getElementById('gps-hdop').textContent = hdop ? `${parseFloat(hdop).toFixed(1)} (${dopQual(parseFloat(hdop))})` : '--';
+  document.getElementById('gps-pdop').textContent = pdop ? `${parseFloat(pdop).toFixed(1)} (${dopQual(parseFloat(pdop))})` : '--';
+  document.getElementById('gps-vdop').textContent = vdop ? `${parseFloat(vdop).toFixed(1)} (${dopQual(parseFloat(vdop))})` : '--';
+
+  // --- Satélites ---
+  document.getElementById('gps-sat-used').textContent = satUsed || '--';
+  document.getElementById('gps-sat-view').textContent = satView || '--';
+  document.getElementById('gps-glo-view').textContent = gloView || '--';
+
+  // --- Tempo & sinal ---
+  document.getElementById('gps-time').textContent = formatGPSTime(utcTime);
+  document.getElementById('gps-cn0').textContent  = cn0 ? `${cn0} dBHz` : '--';
+  document.getElementById('gps-hpa').textContent  = `${hpa?parseFloat(hpa).toFixed(1):'--'} / ${vpa?parseFloat(vpa).toFixed(1):'--'}`;
+
+  // --- Map link + Leaflet ---
+  if (hasFix && lat && lon) {
+    const ml = document.getElementById('mapLink');
+    ml.href = `https://www.google.com/maps?q=${lat},${lon}`;
+    ml.style.display = 'inline-flex';
+
+    const latN = parseFloat(lat);
+    const lonN = parseFloat(lon);
+    const info = `Alt: ${alt?parseFloat(alt).toFixed(0):'--'}m | ${spdKmh} km/h | Sat: ${satUsed}/${satView} | HDOP: ${hdop}`;
+    mapUpdate(latN, lonN, info);
+
+    // atualiza infobar do mapa
+    document.getElementById('map-spd').textContent  = `🚀 ${spdKmh} km/h`;
+    document.getElementById('map-sat').textContent  = `🛰️ ${satUsed}/${satView} sat`;
+    document.getElementById('map-hdop').textContent = `HDOP ${hdop}`;
+  }
+
+  // --- Tabela de campos ---
+  const tbody = document.getElementById('gps-field-tbody');
+  tbody.innerHTML = '';
+  CGNSINF_FIELDS.forEach((f, i) => {
+    const raw = p(i);
+    const dec = f.decode(raw);
+    const rowClass = (i===3||i===4) ? 'f-highlight'
+                   : (i===1 && !hasFix) ? 'f-err'
+                   : (i===1 && hasFix)  ? 'f-highlight'
+                   : '';
+    const tr = document.createElement('tr');
+    if (rowClass) tr.className = rowClass;
+    tr.innerHTML = `
+      <td class="f-idx">${i}</td>
+      <td class="f-name">${f.name}</td>
+      <td class="f-raw">${escHtml(raw||'')}</td>
+      <td class="f-dec">${escHtml(dec)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function formatGPSTime(t) {
+  if (!t || t.length < 14) return t || '--';
+  return `${t.slice(0,4)}-${t.slice(4,6)}-${t.slice(6,8)} ${t.slice(8,10)}:${t.slice(10,12)}:${t.slice(12,14)}`;
+}
+
+function decToDMS(deg, axis) {
+  const abs = Math.abs(deg);
+  const d   = Math.floor(abs);
+  const m   = Math.floor((abs - d) * 60);
+  const s   = ((abs - d - m/60) * 3600).toFixed(2);
+  const dir = axis === 'NS' ? (deg >= 0 ? 'N' : 'S') : (deg >= 0 ? 'E' : 'W');
+  return `${d}°${m}'${s}" ${dir}`;
+}
+
+function cogToDir(deg) {
+  const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+  return dirs[Math.round(deg / 22.5) % 16];
+}
+
+function dopQual(v) {
+  if (v <= 1)   return 'Ideal';
+  if (v <= 2)   return 'Excelente';
+  if (v <= 5)   return 'Bom';
+  if (v <= 10)  return 'Moderado';
+  if (v <= 20)  return 'Ruim';
+  return 'Péssimo';
+}
+
+function parseCSQ(line) {
+  const m = line.match(/\+CSQ:\s*(\d+),(\d+)/);
+  if (!m) return;
+  const rssi = parseInt(m[1]);
+  const ber  = parseInt(m[2]);
+  const dbm  = rssi === 99 ? '--' : (-113 + rssi * 2).toString();
+
+  document.getElementById('sig-rssi').textContent = rssi === 99 ? '--' : rssi;
+  document.getElementById('sig-dbm').textContent  = dbm === '--' ? '--' : `${dbm} dBm`;
+  document.getElementById('sig-qual').textContent = ber === 99 ? '--' : ber;
+
+  // Update bars
+  const level = rssi === 99 ? 0 : Math.min(5, Math.ceil(rssi / 6));
+  for (let i = 1; i <= 5; i++) {
+    const bar = document.getElementById(`b${i}`);
+    bar.classList.toggle('active', i <= level);
+  }
+}
+
+function parseCREG(line) {
+  const m = line.match(/\+CREG:\s*\d?,(\d)/);
+  if (!m) return;
+  const codes = { '0':'Não registrado','1':'Registrado (home)','2':'Buscando...','3':'Negado','5':'Roaming' };
+  document.getElementById('sig-reg').textContent = codes[m[1]] || m[1];
+}
+
+function parseCOPS(line) {
+  const m = line.match(/\+COPS:.*?"(.+?)"/);
+  if (m) document.getElementById('sig-oper').textContent = m[1];
+}
+
+function parseCPIN(line) {
+  const m = line.match(/\+CPIN:\s*(.+)/);
+  if (!m) return;
+  document.getElementById('sig-sim').textContent = m[1].trim();
+}
+
+function parseCSMINS(line) {
+  const m = line.match(/\+CSMINS:\s*\d,\s*(\d)/);
+  if (!m) return;
+  const inserted = m[1] === '1';
+  document.getElementById('sig-sim').textContent = inserted ? 'READY (Inserido)' : 'Ausente';
+}
+
+function parseCGATT(line) {
+  const m = line.match(/\+CGATT:\s*(\d)/);
+  if (!m) return;
+  document.getElementById('sig-gprs').textContent = m[1] === '1' ? 'Conectado' : 'Desanexado';
+}
+
+function parseCLCC(line) {
+  // Exemplo: +CLCC: 1,0,0,0,0,"+5511999999999",145
+  const m = line.match(/\+CLCC:\s*\d+,(\d),(\d),/);
+  if (!m) return;
+  const dir = m[1] === '0' ? 'Saída' : 'Entrada';
+  const statMap = {
+    '0': 'Ativa',
+    '1': 'Retida',
+    '2': 'Discando',
+    '3': 'Tocando',
+    '4': 'Recebendo',
+    '5': 'Espera'
+  };
+  log('sys', `Chamada ${dir}: ${statMap[m[2]] || 'Estado ' + m[2]}`, 'info');
+}
+
+function parseBTSTATUS(line) {
+  const m = line.match(/\+BTSTATUS:\s*(\d+)/);
+  if (!m) return;
+  const btStates = {
+    '0': 'BT desligado/inicial',
+    '5': 'BT ligado (idle)'
+  };
+  const stateText = btStates[m[1]] || ('estado ' + m[1]);
+  const st = document.getElementById('bt-state');
+  if (st) st.textContent = stateText;
+  const vis = document.getElementById('bt-visibility');
+  if (vis) vis.textContent = simBtVisible ? 'Visível' : 'Oculto';
+  btLog(line);
+  log('sys', `Bluetooth: ${stateText}`, 'info');
+}
+
+function parseBTEvent(line) {
+  btLog(line);
+
+  const ev = document.getElementById('bt-last-event');
+  if (ev) ev.textContent = line.length > 38 ? (line.slice(0, 38) + '...') : line;
+
+  const mConn = line.match(/\+BTCONNECT:\s*(\d+)/);
+  if (mConn) {
+    const lk = document.getElementById('bt-last-link');
+    if (lk) lk.textContent = mConn[1];
+  }
+
+  if (line.startsWith('+BTDISCONN:')) {
+    const lk = document.getElementById('bt-last-link');
+    if (lk) lk.textContent = '--';
+  }
+
+  if (line.startsWith('+BTGETPROF:')) {
+    const hasSpp = line.toUpperCase().includes('SPP');
+    if (hasSpp) {
+      log('sys', 'Perfil SPP disponível: Windows pode criar COM Bluetooth (se stack/driver permitir).', 'ok');
+      btLog('Diagnóstico: SPP encontrado.');
+    } else {
+      log('sys', 'Sem perfil SPP no dispositivo remoto: Windows não criará COM para dados seriais.', 'err');
+      btLog('Diagnóstico: SPP NÃO encontrado.');
+    }
+  }
+}
+
+function parseHTTPACTION(line) {
+  const m = line.match(/\+HTTPACTION:\s*(\d),(\d+),(\d+)/);
+  if (!m) return;
+  const method = ({ '0': 'GET', '1': 'POST', '2': 'HEAD' }[m[1]] || m[1]);
+  const status = m[2];
+  const len = m[3];
+  const elMethod = document.getElementById('http-method');
+  const elStatus = document.getElementById('http-status');
+  const elBytes  = document.getElementById('http-bytes');
+  const elState  = document.getElementById('http-state');
+  if (elMethod) elMethod.textContent = method;
+  if (elStatus) elStatus.textContent = status;
+  if (elBytes)  elBytes.textContent  = len;
+  if (elState)  elState.textContent  = 'Ação concluída';
+  log('sys', `HTTP ${method} concluído: status ${status}, ${len} bytes`, status === '200' ? 'ok' : 'err');
+}
+
+function parseHTTPREAD(line) {
+  const m = line.match(/\+HTTPREAD:\s*(\d+)/);
+  if (!m) return;
+  const elBytes = document.getElementById('http-bytes');
+  const elState = document.getElementById('http-state');
+  if (elBytes) elBytes.textContent = m[1];
+  if (elState) elState.textContent = 'Lendo payload';
+  setHttpResponse('');
+  httpReadPending = true;
+  log('sys', `HTTPREAD pronto: ${m[1]} bytes`, 'info');
+}
+
+function parseSMS(line) {
+  const el = document.getElementById('smsLog');
+  if (el.textContent === 'Nenhum SMS recebido ainda.') el.textContent = '';
+  el.textContent += line + '\n';
+}
+
+// ============================================================
+// SMS SEND
+// ============================================================
+async function sendSMS() {
+  const num = document.getElementById('smsNumber').value.trim();
+  const msg = document.getElementById('smsMsg').value.trim();
+  if (!num || !msg) { alert('Preencha número e mensagem.'); return; }
+
+  await send('AT+CMGF=1');
+  await delay(300);
+  await send(`AT+CMGS="${num}"`);
+  await delay(300);
+
+  // send message + Ctrl+Z
+  if (connectedTransport === 'serial' && connected && writer) {
+    const data = new TextEncoder().encode(msg + '\x1A');
+    await writer.write(data);
+    log('tx', `${msg} [CTRL+Z]`);
+  } else if (connectedTransport === 'bluetooth' && connected && bleTxChar) {
+    await sendBleText(msg + '\x1A');
+    log('tx', `${msg} [CTRL+Z]`);
+  } else {
+    log('tx', `${msg} [CTRL+Z]`);
+    setTimeout(() => { logRx('+CMGS: 1'); logRx('OK'); }, 300);
+  }
+}
+
+// ============================================================
+// AUTO POLL
+// ============================================================
+function urcStart() {
+  const n = document.getElementById('urcInterval').value;
+  send(`AT+CGNSURC=${n}`);
+  log('sys', `GNSS URC ativado: módulo enviará +UGNSINF a cada ${n}s automaticamente.`, 'info');
+}
+
+function urcStop() {
+  send('AT+CGNSURC=0');
+  log('sys', 'GNSS URC desativado.', 'info');
+}
+
+function gpsOn() {
+  send('AT+CGNSPWR=1');
+  log('sys', 'GPS ligado. Aguardando fix...', 'info');
+  setTimeout(() => send('AT+CGNSINF'), 1500);
+}
+
+function gpsOff() {
+  if (autoGPSTimer) { clearInterval(autoGPSTimer); autoGPSTimer = null; }
+  send('AT+CGNSPWR=0');
+  log('sys', 'GPS desligado.', 'info');
+}
+
+function setGpsView(view) {
+  const decoded = document.getElementById('gps-view-decoded');
+  const raw     = document.getElementById('gps-view-raw');
+  const btnDec  = document.getElementById('viewDecoded');
+  const btnRaw  = document.getElementById('viewRaw');
+  if (view === 'raw') {
+    decoded.style.display = 'none';
+    raw.style.display     = 'block';
+    btnRaw.classList.add('active');
+    btnDec.classList.remove('active');
+  } else {
+    decoded.style.display = 'block';
+    raw.style.display     = 'none';
+    btnDec.classList.add('active');
+    btnRaw.classList.remove('active');
+  }
+}
+
+function toggleAutoGPS() {
+  if (autoGPSTimer) {
+    clearInterval(autoGPSTimer);
+    autoGPSTimer = null;
+    log('sys', 'Auto-GPS desativado.', 'info');
+  } else {
+    autoGPSTimer = setInterval(() => send('AT+CGNSINF'), 5000);
+    log('sys', 'Auto-GPS ativado (5s).', 'info');
+    send('AT+CGNSINF');
+  }
+}
+
+function toggleAutoSignal() {
+  if (autoSignalTimer) {
+    clearInterval(autoSignalTimer);
+    autoSignalTimer = null;
+    log('sys', 'Auto-Sinal desativado.', 'info');
+  } else {
+    autoSignalTimer = setInterval(() => send('AT+CSQ'), 10000);
+    log('sys', 'Auto-Sinal ativado (10s).', 'info');
+    send('AT+CSQ');
+  }
+}
+
+// ============================================================
+// UI HELPERS
+// ============================================================
+function showTab(name, elOrName) {
+  document.querySelectorAll('.panel').forEach(p => {
+    p.classList.remove('active');
+    p.style.display = '';
+  });
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+
+  const panel = document.getElementById('panel-' + name);
+  if (panel) {
+    panel.classList.add('active');
+    panel.style.display = '';
+  }
+
+  if (elOrName && typeof elOrName !== 'string') {
+    elOrName.classList.add('active');
+  } else {
+    const tab = document.querySelector(`.tab[onclick*="'${name}'"]`);
+    if (tab) tab.classList.add('active');
+  }
+
+  if (name === 'map') {
+    // Painel agora visível — inicializa ou corrige tamanho
+    if (!mapObj) {
+      initMap();
+    } else {
+      resizeMap();
+      requestAnimationFrame(() => {
+        if (mapTrackPts.length > 0)
+          mapObj.setView(mapTrackPts[mapTrackPts.length - 1], Math.max(mapObj.getZoom(), 16));
+      });
+    }
+
+    // Revalida após estabilizar layout (evita mapa ocupando "meia tela")
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => resizeMap());
+    });
+    setTimeout(() => resizeMap(), 120);
+  }
+}
+
+function setStatus(state) {
+  const dot  = document.getElementById('statusDot');
+  const text = document.getElementById('statusText');
+  const btn  = document.getElementById('connectBtn');
+  dot.className = 'dot ' + state;
+  if (state === 'connected') {
+    text.textContent = 'Conectado';
+    btn.textContent  = 'Desconectar';
+    btn.className    = 'conn-btn disconnect';
+    btn.disabled     = false;
+  } else if (state === 'connecting') {
+    text.textContent = 'Conectando...';
+    btn.textContent  = 'Aguarde...';
+    btn.disabled     = true;
+  } else {
+    text.textContent = 'Desconectado';
+    btn.textContent  = 'Conectar';
+    btn.className    = 'conn-btn connect';
+    btn.disabled     = false;
+  }
+}
+
+function log(dir, msg, cls) {
+  const term = document.getElementById('terminal');
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  const now = new Date();
+  const ts = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}.${now.getMilliseconds().toString().padStart(3,'0')}`;
+  entry.innerHTML = `
+    <span class="log-time">${ts}</span>
+    <span class="log-dir ${dir}">${dir.toUpperCase().padEnd(3)}</span>
+    <span class="log-msg ${cls||''}">${escHtml(msg)}</span>
+  `;
+  term.appendChild(entry);
+  term.scrollTop = term.scrollHeight;
+}
+
+function logRx(msg) {
+  const cls = msg === 'OK' ? 'ok' : msg.startsWith('ERROR') || msg.startsWith('+CME') ? 'err' : '';
+  log('rx', msg, cls);
+  parseResponse(msg);
+  btRelayCheck(msg);
+}
+
+// ── BT Relay ──────────────────────────────────────────────────────────────────
+// Quando Serial recebe +BTSPPDATA, executa o comando AT e devolve via BTSPPSEND.
+function btRelayCheck(line) {
+  if (!btRelayEnabled || connectedTransport !== 'serial' || !connected) return;
+
+  // Detecta dados recebidos via BT SPP
+  const m = line.match(/^\+BTSPPDATA:\s*(\d+),\d+,(.+)$/);
+  if (m) {
+    btRelayLinkId = parseInt(m[1]);
+    const cmd = m[2].trim();
+    log('sys', `[BT Relay] Executando: ${cmd}`, 'info');
+    btRelayCaptureActive = true;
+    btRelayRespBuf = [];
+    send(cmd);  // executa via Serial
+    return;
+  }
+
+  // Captura resposta até OK/ERROR
+  if (btRelayCaptureActive) {
+    // Ignora eco do próprio comando
+    if (line.startsWith('AT')) return;
+    btRelayRespBuf.push(line);
+    const isEnd = line === 'OK' || line.startsWith('ERROR') ||
+                  line.startsWith('+CME ERROR') || line.startsWith('+CMS ERROR');
+    if (isEnd) {
+      btRelayCaptureActive = false;
+      btRelaySendResponse(btRelayLinkId, btRelayRespBuf.join('\r\n'));
+    }
+  }
+}
+
+async function btRelaySendResponse(linkId, response) {
+  if (!response || !connected || connectedTransport !== 'serial' || !writer) return;
+  const len = response.length;
+  log('sys', `[BT Relay] Enviando resposta (${len}b) via BTSPPSEND`, 'info');
+  const cmd = `AT+BTSPPSEND=${linkId},${len}\r\n`;
+  await writer.write(new TextEncoder().encode(cmd));
+  await delay(150);
+  // Envia dados + Ctrl+Z para terminar
+  await writer.write(new TextEncoder().encode(response + '\x1A'));
+}
+
+function btRelayToggle() {
+  btRelayEnabled = !btRelayEnabled;
+  const btn = document.getElementById('btRelayBtn');
+  if (btn) {
+    btn.textContent = btRelayEnabled ? '🔁 Relay ON' : '🔁 Relay OFF';
+    btn.style.background = btRelayEnabled ? 'var(--accent)' : '';
+    btn.style.color = btRelayEnabled ? '#fff' : '';
+  }
+  log('sys', `BT Relay ${btRelayEnabled ? 'ATIVADO' : 'desativado'}. ${btRelayEnabled ? 'Comandos do Bridge serão executados via Serial.' : ''}`, 'info');
+}
+
+function clearTerminal() {
+  document.getElementById('terminal').innerHTML = '';
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function sendFromInput() {
+  const inp = document.getElementById('cmdInput');
+  const cmd = inp.value.trim();
+  if (!cmd) return;
+  send(cmd);
+  inp.value = '';
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter') { sendFromInput(); return; }
+  if (e.key === 'ArrowUp') {
+    historyIdx = Math.min(historyIdx + 1, cmdHistory.length - 1);
+    document.getElementById('cmdInput').value = cmdHistory[historyIdx] || '';
+    e.preventDefault();
+  }
+  if (e.key === 'ArrowDown') {
+    historyIdx = Math.max(historyIdx - 1, -1);
+    document.getElementById('cmdInput').value = historyIdx < 0 ? '' : cmdHistory[historyIdx];
+    e.preventDefault();
+  }
+}
+
+function promptCall() {
+  const num = prompt('Número para ligar (ex: +5511999999999):');
+  if (num) send(`ATD${num};`);
+}
+
+function btLog(text) {
+  const box = document.getElementById('bt-console');
+  if (!box) return;
+  if (box.textContent === 'Aguardando eventos Bluetooth...') box.textContent = '';
+  const now = new Date();
+  const ts = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
+  box.textContent += `${box.textContent ? '\n' : ''}[${ts}] ${text}`;
+  box.scrollTop = box.scrollHeight;
+}
+
+function clearBtConsole() {
+  const box = document.getElementById('bt-console');
+  if (box) box.textContent = 'Aguardando eventos Bluetooth...';
+}
+
+function wsScanChannels() {
+  if (connectedTransport !== 'websocket' || !wsConn || wsConn.readyState !== WebSocket.OPEN) {
+    log('sys', 'Conecte via WebSocket Bridge primeiro para usar o scan.', 'err');
+    return;
+  }
+  log('sys', 'Iniciando scan de canais RFCOMM via bridge...', 'info');
+  wsConn.send(JSON.stringify({ type: 'scan' }));
+}
+
+function btConnectById() {
+  const inp = document.getElementById('bt-device-id');
+  const id = inp && inp.value ? parseInt(inp.value, 10) : 1;
+  if (!id || id < 1) { alert('Informe um Device ID válido (>=1).'); return; }
+  send(`AT+BTCONNECT=${id}`);
+}
+
+function btDisconnectById() {
+  const inp = document.getElementById('bt-link-id');
+  const id = inp && inp.value ? parseInt(inp.value, 10) : 1;
+  if (!id || id < 1) { alert('Informe um Link ID válido (>=1).'); return; }
+  send(`AT+BTDISCONN=${id}`);
+}
+
+function btGetProfiles() {
+  const inp = document.getElementById('bt-device-id');
+  const id = inp && inp.value ? parseInt(inp.value, 10) : 1;
+  if (!id || id < 1) { alert('Informe um Device ID válido (>=1).'); return; }
+  send(`AT+BTGETPROF=${id}`);
+}
+
+async function btCheckSppForPC() {
+  const inp = document.getElementById('bt-device-id');
+  const id = inp && inp.value ? parseInt(inp.value, 10) : 1;
+  if (!id || id < 1) { alert('Informe um Device ID válido (>=1).'); return; }
+
+  btLog('--- Diagnóstico SPP para PC ---');
+  btLog(`Usando Device ID: ${id}`);
+  btLog('1) Ligando BT e conferindo status...');
+  await send('AT+BTPOWER=1');
+  await delay(200);
+  await send('AT+BTSTATUS?');
+  await delay(250);
+
+  btLog('2) Escaneando dispositivos próximos...');
+  await send('AT+BTSCAN');
+  await delay(700);
+
+  btLog('3) Consultando perfis do dispositivo...');
+  await send(`AT+BTGETPROF=${id}`);
+  btLog('Se +BTGETPROF não mostrar "SPP", o Windows não criará COM para serial BT.');
+}
+
+async function btTestPCProfile() {
+  const pcId = 3; // conforme seu log: P: 3,"DESKTOP-..."
+  btLog('--- Teste rápido PC (P:3) ---');
+  btLog('1) Desconectando link atual (se houver)...');
+  await send('AT+BTDISCONN=1');
+  await delay(250);
+
+  btLog('2) Consultando status BT...');
+  await send('AT+BTSTATUS?');
+  await delay(350);
+
+  btLog('3) Consultando perfis do PC (P:3)...');
+  await send(`AT+BTGETPROF=${pcId}`);
+  btLog('Resultado esperado: linha +BTGETPROF contendo "SPP".');
+  btLog('Sem SPP => Windows não criará COM Bluetooth para dados AT.');
+}
+
+async function btSppSend() {
+  const input = document.getElementById('bt-spp-data');
+  const msg = input ? input.value.trim() : '';
+  if (!msg) { alert('Digite o payload SPP.'); return; }
+
+  await send('AT+BTSPPSEND');
+  await delay(200);
+
+  if (connectedTransport === 'serial' && connected && writer) {
+    const data = new TextEncoder().encode(msg + '\x1A');
+    await writer.write(data);
+    log('tx', `${msg} [CTRL+Z]`);
+    btLog(`TX SPP: ${msg}`);
+  } else if (connectedTransport === 'bluetooth' && connected && bleTxChar) {
+    await sendBleText(msg + '\x1A');
+    log('tx', `${msg} [CTRL+Z]`);
+    btLog(`TX SPP: ${msg}`);
+  } else {
+    log('tx', `${msg} [CTRL+Z]`);
+    btLog(`TX SPP: ${msg}`);
+    setTimeout(() => {
+      logRx('SEND OK');
+      logRx(`+BTSPPDATA: 1,${msg.length},${msg}`);
+    }, 240);
+  }
+}
+
+function httpInit() {
+  send('AT+HTTPINIT');
+  setTimeout(() => send('AT+HTTPPARA="CID",1'), 120);
+  const st = document.getElementById('http-state');
+  if (st) st.textContent = 'Inicializado';
+  const input = document.getElementById('httpUrlInput');
+  if (input) input.value = simHttpUrl || input.value;
+}
+
+function promptHttpURL() {
+  const current = simHttpUrl || 'https://httpbin.org/get';
+  const url = prompt('URL para HTTP (ex: https://httpbin.org/get):', current);
+  if (!url) return;
+  const sanitized = url.replace(/"/g, '%22');
+  send(`AT+HTTPPARA="URL","${sanitized}"`);
+  const input = document.getElementById('httpUrlInput');
+  if (input) input.value = url;
+}
+
+function httpAction(method) {
+  if (method !== 0 && method !== 1 && method !== 2) method = 0;
+  send(`AT+HTTPACTION=${method}`);
+  const elMethod = document.getElementById('http-method');
+  const elState = document.getElementById('http-state');
+  if (elMethod) elMethod.textContent = ({0:'GET',1:'POST',2:'HEAD'}[method]);
+  if (elState) elState.textContent = 'Executando ação';
+}
+
+function httpSetURLFromInput() {
+  const input = document.getElementById('httpUrlInput');
+  if (!input) return;
+  const url = input.value.trim();
+  if (!url) { alert('Informe uma URL HTTP.'); return; }
+  const sanitized = url.replace(/"/g, '%22');
+  send(`AT+HTTPPARA="URL","${sanitized}"`);
+}
+
+function httpActionFromPanel() {
+  const methodSel = document.getElementById('httpMethodInput');
+  const method = methodSel ? parseInt(methodSel.value, 10) : 0;
+  httpAction(method);
+}
+
+function setHttpResponse(text) {
+  const box = document.getElementById('http-response');
+  if (!box) return;
+  box.textContent = text || 'Aguardando HTTPREAD...';
+}
+
+function appendHttpResponse(text) {
+  const box = document.getElementById('http-response');
+  if (!box) return;
+  if (box.textContent === 'Aguardando HTTPREAD...') box.textContent = '';
+  box.textContent += (box.textContent ? '\n' : '') + text;
+}
+
+function buildCclkStr(d, offsetMin) {
+  const sign  = offsetMin >= 0 ? '+' : '-';
+  const abs   = Math.abs(offsetMin);
+  const zones = Math.floor(abs / 15); // SIM808 usa quartos de hora
+  const yy    = String(d.getFullYear()).slice(-2).padStart(2,'0');
+  const mo    = String(d.getMonth()+1).padStart(2,'0');
+  const dd    = String(d.getDate()).padStart(2,'0');
+  const hh    = String(d.getHours()).padStart(2,'0');
+  const mm    = String(d.getMinutes()).padStart(2,'0');
+  const ss    = String(d.getSeconds()).padStart(2,'0');
+  return `AT+CCLK="${yy}/${mo}/${dd},${hh}:${mm}:${ss}${sign}${String(zones).padStart(2,'0')}"`;
+}
+
+function syncClock() {
+  const now    = new Date();
+  const offset = -now.getTimezoneOffset(); // minutos (positivo = à frente de UTC)
+  const cmd    = buildCclkStr(now, offset);
+  send(cmd);
+  log('sys', `Hora do PC sincronizada → ${cmd}`, 'info');
+}
+
+function promptClock() {
+  const now = new Date();
+  const yy  = String(now.getFullYear()).slice(-2).padStart(2,'0');
+  const mo  = String(now.getMonth()+1).padStart(2,'0');
+  const dd  = String(now.getDate()).padStart(2,'0');
+  const hh  = String(now.getHours()).padStart(2,'0');
+  const mm  = String(now.getMinutes()).padStart(2,'0');
+  const def = `${yy}/${mo}/${dd},${hh}:${mm}:00-03`;
+  const val = prompt('Data/hora para o módulo (aa/mm/dd,hh:mm:ss±fuso):', def);
+  if (val) send(`AT+CCLK="${val}"`);
+}
+
+function confirmReset() {
+  if (confirm('Resetar o módulo SIM808?')) send('AT+CFUN=1,1');
+}
+
+// ============================================================
+// ============================================================
+// MAPA (Leaflet + OpenStreetMap)
+// ============================================================
+let mapObj       = null;
+let mapMarker    = null;
+let mapTrack     = null;
+let mapFollow    = true;
+let mapTrackPts  = [];
+
+function sizeLeafletMap() {
+  const wrapper = document.getElementById('map-wrapper');
+  const el = document.getElementById('leaflet-map');
+  const h = wrapper.clientHeight;
+  const w = wrapper.clientWidth;
+  if (h > 0) el.style.height = h + 'px';
+  if (w > 0) el.style.width  = w + 'px';
+}
+
+function resizeMap() {
+  if (!mapObj) return;
+  sizeLeafletMap();
+  mapObj.invalidateSize(true);
+  if (mapTrackPts.length > 0 && mapFollow)
+    mapObj.setView(mapTrackPts[mapTrackPts.length - 1]);
+}
+
+function initMap() {
+  if (mapObj) return;
+
+  // Dimensiona explicitamente o container antes do Leaflet medir
+  sizeLeafletMap();
+
+  mapObj = L.map('leaflet-map', { zoomControl: true }).setView([-15, -50], 5);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom: 19
+  }).addTo(mapObj);
+
+  const icon = L.divIcon({
+    className: '',
+    html: `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="42" viewBox="0 0 32 42">
+      <defs>
+        <radialGradient id="pg" cx="40%" cy="35%" r="60%">
+          <stop offset="0%" stop-color="#6ab4ff"/>
+          <stop offset="100%" stop-color="#1a6fd4"/>
+        </radialGradient>
+        <filter id="sh" x="-30%" y="-20%" width="160%" height="160%">
+          <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-color="#0004"/>
+        </filter>
+      </defs>
+      <!-- pin body -->
+      <path d="M16 2 C8.268 2 2 8.268 2 16 C2 24 16 40 16 40 C16 40 30 24 30 16 C30 8.268 23.732 2 16 2 Z"
+            fill="url(#pg)" filter="url(#sh)" stroke="#fff" stroke-width="1.5"/>
+      <!-- inner circle -->
+      <circle cx="16" cy="16" r="6" fill="#fff" opacity="0.92"/>
+    </svg>`,
+    iconSize: [32, 42], iconAnchor: [16, 40]
+  });
+
+  mapMarker = L.marker([0,0], { icon }).addTo(mapObj);
+  mapTrack  = L.polyline([], { color:'#58a6ff', weight:2, opacity:0.7 }).addTo(mapObj);
+
+  // Restaura pontos acumulados antes da aba ser aberta
+  if (mapTrackPts.length > 0) {
+    mapTrack.setLatLngs(mapTrackPts);
+    const last = mapTrackPts[mapTrackPts.length - 1];
+    mapMarker.setLatLng(last);
+    if (mapFollow) mapObj.setView(last, 16);
+  }
+
+  // monitora redimensionamento futuro do wrapper
+  new ResizeObserver(() => resizeMap()).observe(document.getElementById('map-wrapper'));
+
+  // Garante recalculo após a aba ficar totalmente renderizada
+  requestAnimationFrame(() => resizeMap());
+  setTimeout(() => resizeMap(), 120);
+}
+
+function mapUpdate(lat, lon, info) {
+  const ll = [lat, lon];
+  mapTrackPts.push(ll);
+  document.getElementById('map-coord').textContent = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+
+  if (!mapObj) return; // inicializa ao abrir a aba
+
+  mapMarker.setLatLng(ll);
+  mapMarker.bindPopup(
+    `<b>${lat.toFixed(6)}, ${lon.toFixed(6)}</b><br>${info}`
+  );
+  mapTrack.setLatLngs(mapTrackPts);
+  if (mapFollow) mapObj.setView(ll, Math.max(mapObj.getZoom(), 16));
+}
+
+function mapFollowToggle() {
+  mapFollow = !mapFollow;
+  document.getElementById('mapFollowBtn').textContent = mapFollow ? '📍 Seguir' : '📍 Livre';
+  if (mapFollow && mapObj && mapTrackPts.length > 0)
+    mapObj.setView(mapTrackPts[mapTrackPts.length - 1], Math.max(mapObj.getZoom(), 16));
+}
+
+function mapClearTrack() {
+  mapTrackPts = [];
+  if (mapTrack) mapTrack.setLatLngs([]);
+}
+
+function mapFitTrack() {
+  if (mapTrackPts.length > 1) mapObj.fitBounds(mapTrack.getBounds(), { padding:[20,20] });
+}
+
+
+// INIT
+// ============================================================
+window.addEventListener('load', () => {
+  readBuffer = '';
+  showTab('terminal', 'terminal');
+  onConnModeChange();
+  const httpUrl = document.getElementById('httpUrlInput');
+  if (httpUrl) httpUrl.value = simHttpUrl;
+  const btState = document.getElementById('bt-state');
+  const btVis = document.getElementById('bt-visibility');
+  if (btState) btState.textContent = 'BT desligado/inicial';
+  if (btVis) btVis.textContent = 'Oculto';
+
+  log('sys', 'SIM808 Controller iniciado.', 'info');
+  log('sys', 'Clique em "Conectar" para abrir porta serial (Web Serial API).', 'info');
+  log('sys', 'Sem hardware? Use os botões normalmente — modo simulação ativo.', 'info');
+
+  if (!('serial' in navigator)) {
+    log('sys', '⚠️ Web Serial não suportado neste browser. Modo simulação ativo.', 'err');
+    document.getElementById('connInfo').textContent = 'Modo simulação';
+    connected = true;
+    setStatus('connected');
+  }
+
+  // PWA — registra Service Worker
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js')
+      .then(reg => {
+        log('sys', `PWA: Service Worker registrado (${reg.scope})`, 'info');
+        reg.addEventListener('updatefound', () => {
+          const nw = reg.installing;
+          if (!nw) return;
+          nw.addEventListener('statechange', () => {
+            if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+              log('sys', 'PWA: Nova versão disponível — recarregue para atualizar.', 'info');
+            }
+          });
+        });
+      })
+      .catch(err => log('sys', `PWA: SW não registrado (${err.message})`, 'err'));
+  }
+});
+</script>
+</body>
+</html>

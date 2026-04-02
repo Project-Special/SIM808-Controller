@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="80" fill="#161b22"/>
+  <!-- Antena -->
+  <line x1="256" y1="60" x2="256" y2="160" stroke="#3fb950" stroke-width="18" stroke-linecap="round"/>
+  <line x1="206" y1="100" x2="256" y2="60" stroke="#3fb950" stroke-width="14" stroke-linecap="round"/>
+  <line x1="306" y1="100" x2="256" y2="60" stroke="#3fb950" stroke-width="14" stroke-linecap="round"/>
+  <!-- Corpo do módulo -->
+  <rect x="130" y="160" width="252" height="230" rx="16" fill="#21262d" stroke="#30363d" stroke-width="6"/>
+  <!-- LED -->
+  <circle cx="350" cy="190" r="14" fill="#3fb950" opacity="0.9"/>
+  <!-- Pinos laterais esquerda -->
+  <rect x="100" y="185" width="30" height="12" rx="4" fill="#58a6ff"/>
+  <rect x="100" y="215" width="30" height="12" rx="4" fill="#58a6ff"/>
+  <rect x="100" y="245" width="30" height="12" rx="4" fill="#58a6ff"/>
+  <rect x="100" y="275" width="30" height="12" rx="4" fill="#58a6ff"/>
+  <rect x="100" y="305" width="30" height="12" rx="4" fill="#58a6ff"/>
+  <!-- Pinos laterais direita -->
+  <rect x="382" y="185" width="30" height="12" rx="4" fill="#58a6ff"/>
+  <rect x="382" y="215" width="30" height="12" rx="4" fill="#58a6ff"/>
+  <rect x="382" y="245" width="30" height="12" rx="4" fill="#58a6ff"/>
+  <rect x="382" y="275" width="30" height="12" rx="4" fill="#58a6ff"/>
+  <!-- Chip central -->
+  <rect x="196" y="210" width="120" height="100" rx="8" fill="#0d1117" stroke="#238636" stroke-width="3"/>
+  <text x="256" y="270" text-anchor="middle" font-family="monospace" font-size="22" font-weight="bold" fill="#3fb950">SIM808</text>
+  <!-- Onda GPS -->
+  <path d="M170 380 Q200 350 230 380 Q260 410 290 380 Q320 350 350 380" stroke="#58a6ff" stroke-width="8" fill="none" stroke-linecap="round"/>
+  <!-- Pin GPS -->
+  <circle cx="256" cy="440" r="18" fill="#da3633"/>
+  <circle cx="256" cy="440" r="9" fill="#fff"/>
+</svg>

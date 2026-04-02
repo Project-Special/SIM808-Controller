@@ -1,0 +1,35 @@
+{
+  "name": "SIM808 Controller",
+  "short_name": "SIM808",
+  "description": "Interface de controle para módulo SIM808 — GPS, GSM, Bluetooth",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0d1117",
+  "theme_color": "#238636",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["utilities", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Terminal AT",
+      "short_name": "Terminal",
+      "url": "./index.html#terminal",
+      "description": "Abrir terminal AT"
+    },
+    {
+      "name": "GPS",
+      "short_name": "GPS",
+      "url": "./index.html#gps",
+      "description": "Painel GPS"
+    }
+  ]
+}
