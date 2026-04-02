@@ -680,11 +680,135 @@
 
     /* TOOLTIP */
     [title] { cursor: help; }
+
+    /* HAMBURGER */
+    .menu-toggle {
+      display: none;
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    /* SIDEBAR OVERLAY */
+    .sidebar-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.55);
+      z-index: 99;
+    }
+
+    /* ── MOBILE ────────────────────────────────── */
+    @media (max-width: 768px) {
+
+      body { font-size: 15px; }
+
+      /* Header */
+      .menu-toggle { display: block; }
+
+      header h1 { font-size: 14px; }
+
+      /* Sidebar becomes off-canvas drawer */
+      .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: 280px;
+        z-index: 100;
+        transform: translateX(-100%);
+        transition: transform 0.25s ease;
+        box-shadow: 4px 0 24px rgba(0,0,0,0.6);
+      }
+
+      .sidebar.open { transform: translateX(0); }
+
+      .sidebar-overlay.open { display: block; }
+
+      /* Connection bar stacks */
+      .conn-bar {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 10px 12px;
+      }
+
+      .conn-bar > * { width: 100%; }
+
+      .conn-bar select,
+      .conn-bar input[type=number],
+      #wsUrlInput {
+        width: 100% !important;
+        font-size: 15px;
+        padding: 8px 12px;
+      }
+
+      .conn-btn { width: 100%; padding: 10px 14px; font-size: 14px; }
+
+      #connInfo { margin-left: 0 !important; }
+
+      /* Tabs — scroll horizontally, bigger touch area */
+      .tabs { padding: 6px 10px; gap: 6px; }
+      .tab { padding: 10px 16px; font-size: 14px; }
+
+      /* Sidebar command buttons — bigger touch target */
+      .cmd-btn { padding: 11px 12px; font-size: 14px; }
+      .cmd-btn .at-cmd { display: none; }
+
+      /* GPS/Signal info-grid — 2 cols minimum */
+      .info-grid {
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      }
+
+      .info-card .card-value { font-size: 18px; }
+      .info-card .card-value.big { font-size: 22px; }
+
+      /* GPS field table — hide idx/raw cols */
+      .field-table .f-idx,
+      .field-table .f-raw { display: none; }
+      .field-table .f-name { width: auto; }
+
+      /* Action buttons */
+      .action-btn { width: 100%; text-align: center; padding: 11px 20px; }
+
+      /* Form rows stack on mobile */
+      .form-row { flex-direction: column; }
+
+      /* Input bar */
+      .input-bar { padding: 8px 10px; gap: 6px; }
+      .input-bar input { font-size: 15px; padding: 10px 12px; }
+      .send-btn { padding: 10px 16px; font-size: 14px; }
+      .clear-btn { padding: 10px 12px; font-size: 14px; }
+
+      /* Panels padding */
+      .gps-panel,
+      .sms-panel,
+      .signal-panel,
+      .http-panel,
+      .bt-panel { padding: 12px; gap: 10px; }
+
+      /* Map box taller on mobile */
+      .map-box { height: 180px; }
+    }
+
+    /* Very small screens */
+    @media (max-width: 380px) {
+      .info-grid { grid-template-columns: 1fr 1fr; }
+      .tabs { gap: 4px; }
+      .tab { padding: 9px 12px; font-size: 13px; }
+    }
   </style>
 </head>
 <body>
 
 <header>
+  <button class="menu-toggle" onclick="toggleSidebar()" aria-label="Menu">☰</button>
   <span style="font-size:20px;">📡</span>
   <h1>SIM808 Controller</h1>
   <div class="status-badge">
@@ -692,6 +816,7 @@
     <span id="statusText">Desconectado</span>
   </div>
 </header>
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
 
 <!-- CONNECTION BAR -->
 <div class="conn-bar">
@@ -3135,6 +3260,26 @@ window.addEventListener('load', () => {
       })
       .catch(err => log('sys', `PWA: SW não registrado (${err.message})`, 'err'));
   }
+});
+
+// ── Mobile sidebar ─────────────────────────────────────────────────────────────
+function toggleSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  const overlay = document.getElementById('sidebarOverlay');
+  const open = sidebar.classList.toggle('open');
+  overlay.classList.toggle('open', open);
+}
+
+function closeSidebar() {
+  document.querySelector('.sidebar').classList.remove('open');
+  document.getElementById('sidebarOverlay').classList.remove('open');
+}
+
+// Close sidebar when a command button is tapped on mobile
+document.querySelectorAll('.cmd-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (window.innerWidth <= 768) closeSidebar();
+  });
 });
 </script>
 </body>
