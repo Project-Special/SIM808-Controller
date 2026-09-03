@@ -2570,7 +2570,7 @@ function simulateResponse(cmd) {
 // ============================================================
 // RESPONSE PARSER
 // ============================================================
-const APP_VERSION = 'v2.6';
+const APP_VERSION = 'v2.7';
 let lastCmdSent = '';
 
 function parseResponse(line) {
@@ -2586,6 +2586,8 @@ function explainError(line) {
   const c = lastCmdSent;
   if (c.startsWith('AT+CGNS') || c.startsWith('AT+CGPS')) {
     log('sys', `O módulo REJEITOU ${c} (${line}). Comandos GNSS não existem neste firmware — placas SIM800/SIM800L não têm GPS. Confirme o modelo com ATI.`, 'err');
+  } else if (c === 'AT+HTTPTERM') {
+    log('sys', 'AT+HTTPTERM retornou ERROR porque n\u00e3o havia sess\u00e3o HTTP aberta \u2014 e esperado, a sequ\u00eancia continua.', 'info');
   } else if (c.startsWith('AT+CSQ') || c.startsWith('AT+CREG') || c.startsWith('AT+COPS') || c.startsWith('AT+CPIN') || c.startsWith('AT+CSMINS') || c.startsWith('AT+CGATT')) {
     log('sys', `${c} retornou ${line} — módulo sem SIM pronto ou ainda inicializando.`, 'err');
   }
@@ -3281,8 +3283,13 @@ const SIGNAL_QUERIES = ['AT+CSQ', 'AT+CREG?', 'AT+COPS?', 'AT+CPIN?', 'AT+CSMINS
 const SIGNAL_QUERIES_FAST = ['AT+CSQ', 'AT+CREG?'];
 let signalQueryBusy = false;
 
+const LOCK_BUSY = Symbol('cmd-lock-busy');
+
 async function withCmdLock(fn) {
-  if (signalQueryBusy) return;
+  if (signalQueryBusy) {
+    log('sys', 'Outra sequ\u00eancia de comandos ainda est\u00e1 rodando \u2014 a\u00e7\u00e3o ignorada. Aguarde ela terminar.', 'err');
+    return LOCK_BUSY;
+  }
   signalQueryBusy = true;
   try {
     return await fn();
@@ -4251,7 +4258,8 @@ async function gprsClose() {
   if (gpsWasPolling) { clearInterval(autoGPSTimer); autoGPSTimer = null; syncAutoGpsBtn(); }
   setBtnState('gprsBtn', 'busy', 'Fechando...');
   try {
-    await withCmdLock(gprsCloseSeq);
+    const r = await withCmdLock(gprsCloseSeq);
+    if (r === LOCK_BUSY) setBtnState('gprsBtn', 'ok', '\u2713 Conectado');
   } finally {
     if (gpsWasPolling && !autoGPSTimer) toggleAutoGPS();
   }
@@ -4321,7 +4329,8 @@ async function httpRequest() {
   if (gpsWasPolling) { clearInterval(autoGPSTimer); autoGPSTimer = null; syncAutoGpsBtn(); }
   setBtnState('httpReqBtn', 'busy', 'Enviando...');
   try {
-    await withCmdLock(() => httpRequestSeq(url, method));
+    const r = await withCmdLock(() => httpRequestSeq(url, method));
+    if (r === LOCK_BUSY) setBtnState('httpReqBtn', 'fail', '\u26A0 Ocupado');
   } finally {
     if (gpsWasPolling && !autoGPSTimer) toggleAutoGPS();
   }
