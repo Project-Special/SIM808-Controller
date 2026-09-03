@@ -1172,6 +1172,7 @@
             <div class="fix-banner-text">
               <div class="fix-banner-title" id="gps-fix-title">Aguardando GPS...</div>
               <div class="fix-banner-sub"  id="gps-fix-sub">Nenhum dado recebido</div>
+              <div class="fix-banner-sub"  id="gps-age" style="margin-top:2px;">Sem frames +CGNSINF</div>
             </div>
             <a class="map-link" id="mapLink" href="#" target="_blank" style="display:none;">📍 Maps</a>
           </div>
@@ -1458,6 +1459,7 @@
             <span id="map-sat"   style="color:var(--text-dim);"></span>
             <span id="map-hdop"  style="color:var(--text-dim);"></span>
             <span id="map-acc"   style="color:var(--text-dim);"></span>
+            <span id="map-age"   style="color:var(--text-dim);"></span>
           </div>
 
           <div id="map-controls" style="
@@ -2284,7 +2286,7 @@ function simulateResponse(cmd) {
 // ============================================================
 // RESPONSE PARSER
 // ============================================================
-const APP_VERSION = 'v1.4';
+const APP_VERSION = 'v1.5';
 let lastCmdSent = '';
 
 function parseResponse(line) {
@@ -2477,6 +2479,10 @@ function parseGNSINF(line) {
     const hpaN = parseFloat(hpa);
     const acc  = hpaN > 0 ? hpaN : (parseFloat(hdop) > 0 ? parseFloat(hdop) * 5 : 0);
     const info = `Alt: ${alt?parseFloat(alt).toFixed(0):'--'}m | ${spdKmh} km/h | Sat: ${satUsed}/${satView} | HDOP: ${hdop}`;
+    const posKey = `${latN.toFixed(6)},${lonN.toFixed(6)}`;
+    repeatCount = posKey === lastPosKey ? repeatCount + 1 : 1;
+    lastPosKey  = posKey;
+
     mapUpdate(latN, lonN, info, acc);
 
     document.getElementById('map-acc').textContent = acc
@@ -2842,6 +2848,45 @@ function toggleAutoGPS() {
     log('sys', 'Auto-GPS ativado (5s).', 'info');
     send('AT+CGNSINF');
   }
+  syncAutoGpsBtn();
+}
+
+// Sem isso nao da para saber se o poll esta rodando — e clicar no botao
+// achando que liga acaba desligando o poll que o gpsOn() ja iniciou.
+function syncAutoGpsBtn() {
+  const b = document.getElementById('autoGpsBtn');
+  if (!b) return;
+  const on = !!autoGPSTimer;
+  b.textContent = on ? '⚡ Poll 5s: ON' : '⚡ Poll 5s: OFF';
+  b.classList.toggle('secondary', !on);
+}
+
+// Frescor do ultimo frame. Distingue "parou de chegar dado" de
+// "chega dado, mas a posicao e sempre a mesma" — sintomas iguais na tela.
+let repeatCount = 0;
+let lastPosKey  = '';
+
+function updateGpsAge() {
+  const el  = document.getElementById('gps-age');
+  const mel = document.getElementById('map-age');
+  if (!el) return;
+
+  if (!lastGnss.ts) {
+    el.textContent = autoGPSTimer ? 'Poll ligado, nenhum frame recebido ainda...' : 'Sem frames +CGNSINF — ligue o GPS ou o Poll';
+    el.style.color = '';
+    if (mel) mel.textContent = '';
+    return;
+  }
+
+  const age = Math.floor((Date.now() - lastGnss.ts) / 1000);
+  const stale = autoGPSTimer && age > 15;
+  let txt = `Último frame há ${age}s`;
+  if (repeatCount > 1) txt += ` · mesma posição em ${repeatCount} frames`;
+  if (stale) txt += ' · o módulo parou de responder ao AT+CGNSINF';
+
+  el.textContent = txt;
+  el.style.color = stale ? 'var(--err, #f85149)' : '';
+  if (mel) mel.textContent = `⏱ ${age}s`;
 }
 
 // Consultas do painel Sinal. O SIM808 responde uma por vez: envia
@@ -2905,8 +2950,10 @@ function showTab(name, elOrName) {
     refreshSignal();
   }
 
+  // Um unico AT+CGNSINF deixa o painel congelado no primeiro frame:
+  // abrir a aba liga o poll.
   if (name === 'gps' && connected && !autoGPSTimer) {
-    send('AT+CGNSINF');
+    toggleAutoGPS();
   }
 
   if (name === 'map') {
@@ -3406,6 +3453,8 @@ window.addEventListener('load', () => {
   if (btVis) btVis.textContent = 'Oculto';
 
   document.getElementById('appVersion').textContent = APP_VERSION;
+  syncAutoGpsBtn();
+  setInterval(updateGpsAge, 1000);
   log('sys', `SIM808 Controller ${APP_VERSION} iniciado.`, 'info');
   log('sys', 'Clique em "Conectar" para abrir porta serial (Web Serial API).', 'info');
   log('sys', 'Sem hardware? Use os botões normalmente — modo simulação ativo.', 'info');
