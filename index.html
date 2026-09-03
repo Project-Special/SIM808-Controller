@@ -2220,6 +2220,9 @@ function simulateResponse(cmd) {
       logRx('>');
       return;
     }
+    if (c === 'AT+CIPSHUT') { logRx('SHUT OK'); logRx('OK'); return; }
+    if (c === 'AT+CGATT?') { logRx('+CGATT: 1'); logRx('OK'); return; }
+    if (c === 'AT+CGREG?') { logRx('+CGREG: 0,1'); logRx('OK'); return; }
     if (c.startsWith('AT+SAPBR=3,')) { logRx('OK'); return; }
     if (c === 'AT+SAPBR=1,1') { logRx('OK'); return; }
     if (c === 'AT+SAPBR=2,1') { logRx('+SAPBR: 1,1,"10.171.32.44"'); logRx('OK'); return; }
@@ -2326,7 +2329,7 @@ function simulateResponse(cmd) {
 // ============================================================
 // RESPONSE PARSER
 // ============================================================
-const APP_VERSION = 'v1.6';
+const APP_VERSION = 'v1.7';
 let lastCmdSent = '';
 
 function parseResponse(line) {
@@ -2347,7 +2350,46 @@ function explainError(line) {
   }
 }
 
+// Aguarda o terminador (OK/ERROR) de um comando. Sem isso a sequencia de
+// bearer segue em frente mesmo quando um passo falhou.
+let pendingResp = null;
+
+function feedPending(line) {
+  if (!pendingResp) return;
+  if (line === pendingResp.cmd) return;  // eco do proprio comando
+  pendingResp.lines.push(line);
+  if (line === 'OK' || line === 'ERROR' || line.startsWith('+CME ERROR') || line.startsWith('+CMS ERROR')) {
+    const pr = pendingResp;
+    pendingResp = null;
+    clearTimeout(pr.timer);
+    pr.resolve({ ok: line === 'OK', lines: pr.lines, last: line });
+  }
+}
+
+function sendAwait(cmd, timeoutMs = 8000) {
+  return new Promise(resolve => {
+    if (pendingResp) {  // nunca deixa dois pendentes
+      const old = pendingResp;
+      pendingResp = null;
+      clearTimeout(old.timer);
+      old.resolve({ ok: false, lines: old.lines, last: '', timeout: true });
+    }
+    pendingResp = {
+      cmd: cmd.trim(), lines: [], resolve,
+      timer: setTimeout(() => {
+        const pr = pendingResp;
+        pendingResp = null;
+        if (pr) pr.resolve({ ok: false, lines: pr.lines, last: '', timeout: true });
+      }, timeoutMs)
+    };
+    send(cmd);
+  });
+}
+
+function respHas(r, re) { return r.lines.some(l => re.test(l)); }
+
 function parseResponseInner(line) {
+  feedPending(line);
   if (line === 'ERROR' || line.startsWith('+CME ERROR') || line.startsWith('+CMS ERROR')) explainError(line);
 
   if (httpReadPending) {
@@ -2940,6 +2982,16 @@ const SIGNAL_QUERIES = ['AT+CSQ', 'AT+CREG?', 'AT+COPS?', 'AT+CPIN?', 'AT+CSMINS
 const SIGNAL_QUERIES_FAST = ['AT+CSQ', 'AT+CREG?'];
 let signalQueryBusy = false;
 
+async function withCmdLock(fn) {
+  if (signalQueryBusy) return;
+  signalQueryBusy = true;
+  try {
+    return await fn();
+  } finally {
+    signalQueryBusy = false;
+  }
+}
+
 async function runQueries(cmds) {
   if (signalQueryBusy) return;
   signalQueryBusy = true;
@@ -3290,19 +3342,87 @@ async function gprsConnect() {
   if (!apn) { alert('Informe a APN da operadora.'); return; }
   saveApn(apn, user, pass);
 
-  const seq = [
-    ['AT+CGATT=1', 1000],
-    ['AT+SAPBR=3,1,"Contype","GPRS"', 400],
-    [`AT+SAPBR=3,1,"APN","${apn}"`, 400]
-  ];
-  if (user) seq.push([`AT+SAPBR=3,1,"USER","${user}"`, 400]);
-  if (pass) seq.push([`AT+SAPBR=3,1,"PWD","${pass}"`, 400]);
-  // Abrir o bearer negocia com a rede e leva alguns segundos.
-  seq.push(['AT+SAPBR=1,1', 6000]);
-  seq.push(['AT+SAPBR=2,1', 400]);
+  // O poll do GPS injetaria um OK no meio da sequencia e resolveria o
+  // sendAwait errado; pausa e restaura no fim.
+  const gpsWasPolling = !!autoGPSTimer;
+  if (gpsWasPolling) { clearInterval(autoGPSTimer); autoGPSTimer = null; syncAutoGpsBtn(); }
 
+  try {
+    await withCmdLock(() => gprsConnectSeq(apn, user, pass));
+  } finally {
+    if (gpsWasPolling && !autoGPSTimer) toggleAutoGPS();
+  }
+}
+
+async function gprsConnectSeq(apn, user, pass) {
   log('sys', `Abrindo bearer GPRS na APN "${apn}"...`, 'info');
-  await runQueries(seq);
+
+  // Stack TCP/IP aberto de uma sessao anterior faz o SAPBR=1,1 devolver
+  // ERROR direto. CIPSHUT devolve tudo ao estado inicial.
+  await sendAwait('AT+CIPSHUT', 15000);
+  await sendAwait('AT+SAPBR=0,1', 8000);
+
+  let att = await sendAwait('AT+CGATT?', 10000);
+  if (!respHas(att, /\+CGATT:\s*1/)) {
+    log('sys', 'GPRS nao atachado \u2014 tentando AT+CGATT=1 (pode levar 30s)...', 'info');
+    await sendAwait('AT+CGATT=1', 40000);
+    att = await sendAwait('AT+CGATT?', 10000);
+  }
+  const attached = respHas(att, /\+CGATT:\s*1/);
+
+  await sendAwait('AT+SAPBR=3,1,"Contype","GPRS"');
+  await sendAwait(`AT+SAPBR=3,1,"APN","${apn}"`);
+  await sendAwait(`AT+SAPBR=3,1,"USER","${user}"`);
+  await sendAwait(`AT+SAPBR=3,1,"PWD","${pass}"`);
+
+  if (await gprsOpen(3)) return;
+
+  // Varias APNs recusam autenticacao quando USER/PWD vao preenchidos.
+  if (user || pass) {
+    log('sys', 'Tentando novamente sem USER/PWD \u2014 muitas APNs recusam autentica\u00e7\u00e3o preenchida.', 'info');
+    await sendAwait('AT+SAPBR=3,1,"USER",""');
+    await sendAwait('AT+SAPBR=3,1,"PWD",""');
+    if (await gprsOpen(2)) return;
+  }
+
+  await gprsFailReport(attached);
+}
+
+// Abre o bearer com N tentativas; a rede costuma aceitar na segunda.
+async function gprsOpen(tries) {
+  for (let i = 1; i <= tries; i++) {
+    const r = await sendAwait('AT+SAPBR=1,1', 40000);
+    const st = await sendAwait('AT+SAPBR=2,1', 10000);
+    if (r.ok || respHas(st, /\+SAPBR:\s*\d+,\s*1,/)) {
+      log('sys', 'Bearer GPRS aberto.', 'ok');
+      return true;
+    }
+    log('sys', `AT+SAPBR=1,1 falhou (${i}/${tries})${r.timeout ? ' \u2014 sem resposta' : ''}.`, 'err');
+    if (i < tries) await delay(3000);
+  }
+  return false;
+}
+
+async function gprsFailReport(attached) {
+  log('sys', '--- Por que o bearer nao abriu ---', 'info');
+  const csq   = await sendAwait('AT+CSQ', 8000);
+  const creg  = await sendAwait('AT+CREG?', 8000);
+  const cgreg = await sendAwait('AT+CGREG?', 8000);
+
+  const mRssi = (csq.lines.find(l => l.startsWith('+CSQ:')) || '').match(/\+CSQ:\s*(\d+)/);
+  const rssi  = mRssi ? parseInt(mRssi[1]) : 99;
+  const regOk  = respHas(creg,  /\+CREG:\s*\d,\s*[15]/);
+  const gregOk = respHas(cgreg, /\+CGREG:\s*\d,\s*[15]/);
+
+  if (rssi === 99 || rssi < 8) {
+    log('sys', `Sinal insuficiente (RSSI ${rssi === 99 ? 'desconhecido' : rssi}). Abaixo de ~8 a rede recusa attach de dados: melhore a antena GSM e a alimenta\u00e7\u00e3o.`, 'err');
+  } else if (!regOk) {
+    log('sys', 'O modulo nao esta registrado na rede (CREG). Verifique SIM destravado e cobertura.', 'err');
+  } else if (!gregOk || !attached) {
+    log('sys', 'Registrado na voz mas NAO no dado (CGREG/CGATT = 0). O chip nao tem pacote de dados habilitado, ou e um chip s\u00f3-voz/M2M com APN diferente. Confirme o plano com a operadora.', 'err');
+  } else {
+    log('sys', `Rede OK (RSSI ${rssi}, registrado em dados) mas o bearer recusa. Quase sempre e APN errada para o plano \u2014 teste sem USER/PWD, e confirme a APN correta do chip com a operadora.`, 'err');
+  }
 }
 
 function gprsStatus() { return runQueries(['AT+CGATT?', 'AT+SAPBR=2,1']); }
