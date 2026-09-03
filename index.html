@@ -228,6 +228,7 @@
     .tab {
       padding: 8px 14px;
       cursor: pointer;
+      flex-shrink: 0;   /* com 8 abas o flex espremia os itens em vez de rolar */
       font-size: 13px;
       color: var(--text-dim);
       border: 1px solid var(--border);
@@ -2528,7 +2529,7 @@ function simulateResponse(cmd) {
 // ============================================================
 // RESPONSE PARSER
 // ============================================================
-const APP_VERSION = 'v2.2';
+const APP_VERSION = 'v2.3';
 let lastCmdSent = '';
 
 function parseResponse(line) {
@@ -3603,9 +3604,11 @@ function setPill(id, state, text) {
 // Arco de 180 graus: -90 (esquerda) a +90 (direita).
 function arcPath(cx, cy, r, frac) {
   const a0 = Math.PI, a1 = Math.PI * (1 - Math.max(0, Math.min(1, frac)));
-  const x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0);
-  const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
-  return `M ${x0} ${y0} A ${r} ${r} 0 ${frac > 0.5 ? 1 : 0} 1 ${x1} ${y1}`;
+  // y invertido: em SVG o eixo cresce para baixo e o arco tem que subir.
+  const x0 = cx + r * Math.cos(a0), y0 = cy - r * Math.sin(a0);
+  const x1 = cx + r * Math.cos(a1), y1 = cy - r * Math.sin(a1);
+  // O setor varrido e sempre <= 180 graus, entao large-arc e sempre 0.
+  return `M ${x0} ${y0} A ${r} ${r} 0 0 1 ${x1} ${y1}`;
 }
 
 function drawArcGauge(svgId, frac, color, label) {
