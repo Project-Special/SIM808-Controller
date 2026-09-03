@@ -1865,6 +1865,7 @@ let autoSignalTimer = null;
 let readBuffer = '';
 let simHttpInited = false;
 let simHttpUrl = 'http://httpbin.org/get';
+let simBearerOpen = false;
 let simHttpLastBody = '';
 let httpReadPending = false;
 let simBtPowerOn = false;
@@ -2460,9 +2461,13 @@ function simulateResponse(cmd) {
     if (c === 'AT+CGATT?') { logRx('+CGATT: 1'); logRx('OK'); return; }
     if (c === 'AT+CGREG?') { logRx('+CGREG: 0,1'); logRx('OK'); return; }
     if (c.startsWith('AT+SAPBR=3,')) { logRx('OK'); return; }
-    if (c === 'AT+SAPBR=1,1') { logRx('OK'); return; }
-    if (c === 'AT+SAPBR=2,1') { logRx('+SAPBR: 1,1,"10.171.32.44"'); logRx('OK'); return; }
-    if (c === 'AT+SAPBR=0,1') { logRx('OK'); return; }
+    if (c === 'AT+SAPBR=1,1') { simBearerOpen = true; logRx('OK'); return; }
+    if (c === 'AT+SAPBR=2,1') {
+      logRx(simBearerOpen ? '+SAPBR: 1,1,"10.171.32.44"' : '+SAPBR: 1,3,"0.0.0.0"');
+      logRx('OK');
+      return;
+    }
+    if (c === 'AT+SAPBR=0,1') { simBearerOpen = false; logRx('OK'); return; }
     if (c === 'AT+CGATT=1' || c === 'AT+HTTPSSL=1') { logRx('OK'); return; }
     if (c === 'AT+HTTPINIT') {
       simHttpInited = true;
@@ -2565,7 +2570,7 @@ function simulateResponse(cmd) {
 // ============================================================
 // RESPONSE PARSER
 // ============================================================
-const APP_VERSION = 'v2.5';
+const APP_VERSION = 'v2.6';
 let lastCmdSent = '';
 
 function parseResponse(line) {
@@ -4238,10 +4243,44 @@ async function gprsFailReport(attached) {
 }
 
 function gprsStatus() { return runQueries(['AT+CGATT?', 'AT+SAPBR=2,1']); }
-function gprsClose() {
-  setBtnState('gprsBtn', 'idle', '\u{1F50C} Conectar GPRS');
+// Fechar precisa ser verificado: runQueries disparava os dois comandos em
+// delays fixos, sem olhar resposta, e o botao ja voltava para "Conectar"
+// mesmo quando o bearer continuava aberto.
+async function gprsClose() {
+  const gpsWasPolling = !!autoGPSTimer;
+  if (gpsWasPolling) { clearInterval(autoGPSTimer); autoGPSTimer = null; syncAutoGpsBtn(); }
+  setBtnState('gprsBtn', 'busy', 'Fechando...');
+  try {
+    await withCmdLock(gprsCloseSeq);
+  } finally {
+    if (gpsWasPolling && !autoGPSTimer) toggleAutoGPS();
+  }
+}
+
+function bearerIsOpen(r) { return respHas(r, /\+SAPBR:\s*\d+,\s*1,/); }
+
+async function gprsCloseSeq() {
+  await sendAwait('AT+HTTPTERM', 8000);
+  await sendAwait('AT+SAPBR=0,1', 30000);   // pode demorar: negocia com a rede
+  let st = await sendAwait('AT+SAPBR=2,1', 10000);
+
+  if (bearerIsOpen(st)) {
+    // O bearer se recusa a cair enquanto o stack IP estiver de pe.
+    log('sys', 'Bearer ainda aberto \u2014 for\u00e7ando com AT+CIPSHUT...', 'info');
+    await sendAwait('AT+CIPSHUT', 20000);
+    await sendAwait('AT+SAPBR=0,1', 20000);
+    st = await sendAwait('AT+SAPBR=2,1', 10000);
+  }
+
+  if (bearerIsOpen(st)) {
+    setBtnState('gprsBtn', 'fail', '\u26A0 N\u00e3o fechou');
+    log('sys', 'O m\u00f3dulo n\u00e3o fechou o bearer. Restam AT+CGATT=0 (desanexa dos dados) ou AT+CFUN=1,1 (reinicia o r\u00e1dio).', 'err');
+    return;
+  }
+
   document.getElementById('http-bearer').textContent = '--';
-  return runQueries(['AT+HTTPTERM', 'AT+SAPBR=0,1']);
+  setBtnState('gprsBtn', 'idle', '\u{1F50C} Conectar GPRS');
+  log('sys', 'Bearer GPRS fechado.', 'ok');
 }
 
 function parseSAPBR(line) {
