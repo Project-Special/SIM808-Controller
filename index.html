@@ -33,6 +33,58 @@
       --mono: 'Courier New', monospace;
     }
 
+
+    /* DASHBOARD */
+    .dash { display:flex; flex-direction:column; gap:14px; padding:2px; overflow-y:auto; }
+
+    .dash-pills { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+    .pill {
+      background:var(--surface2); border:1px solid var(--border); border-radius:10px;
+      padding:10px 12px; display:flex; align-items:center; gap:10px;
+    }
+    .pill .led {
+      width:12px; height:12px; border-radius:50%; background:var(--text-dim);
+      box-shadow:0 0 0 0 transparent; flex:none; transition:background .2s, box-shadow .2s;
+    }
+    .pill.ok   .led { background:var(--green);  box-shadow:0 0 10px var(--green); }
+    .pill.warn .led { background:var(--yellow); box-shadow:0 0 10px var(--yellow); }
+    .pill.bad  .led { background:var(--red);    box-shadow:0 0 10px var(--red); }
+    .pill-txt { min-width:0; }
+    .pill-name { font-size:10px; letter-spacing:.6px; text-transform:uppercase; color:var(--text-dim); }
+    .pill-val  { font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+    .dash-hero { display:flex; gap:12px; flex-wrap:wrap; align-items:stretch; }
+    .big-btn {
+      flex:1; min-width:220px; border:none; border-radius:12px; cursor:pointer;
+      background:var(--accent); color:#fff; font-size:17px; font-weight:700;
+      padding:20px 18px; display:flex; align-items:center; justify-content:center; gap:10px;
+    }
+    .big-btn:hover { background:var(--accent-hover); }
+    .big-btn.stop  { background:var(--danger); }
+    .big-btn:disabled { opacity:.5; cursor:default; }
+
+    .steps { flex:2; min-width:260px; background:var(--surface2); border:1px solid var(--border);
+             border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; gap:6px; }
+    .step { display:flex; align-items:center; gap:9px; font-size:13px; color:var(--text-dim); }
+    .step .ic { width:18px; text-align:center; flex:none; }
+    .step.run  { color:var(--text); }
+    .step.done { color:var(--green); }
+    .step.fail { color:var(--red); }
+
+    .gauges { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; }
+    .gauge { background:var(--surface2); border:1px solid var(--border); border-radius:12px;
+             padding:12px; display:flex; flex-direction:column; align-items:center; gap:6px; }
+    .gauge-title { font-size:10px; letter-spacing:.6px; text-transform:uppercase; color:var(--text-dim); }
+    .gauge svg { display:block; }
+
+    .apn-chips { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .chip {
+      background:var(--surface2); border:1px solid var(--border); color:var(--text);
+      border-radius:20px; padding:6px 14px; font-size:12px; cursor:pointer;
+    }
+    .chip:hover  { border-color:var(--info); }
+    .chip.active { background:var(--info); border-color:var(--info); color:#fff; }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
@@ -1140,6 +1192,7 @@
 
     <!-- TABS -->
     <div class="tabs">
+      <div class="tab" onclick="showTab('dash', this)">Painel</div>
       <div class="tab active" onclick="showTab('terminal', this)">Terminal</div>
       <div class="tab" onclick="showTab('gps', this)">GPS</div>
       <div class="tab" onclick="showTab('sms', this)">SMS</div>
@@ -1151,6 +1204,74 @@
     </div>
 
     <div class="panels">
+
+      <!-- DASHBOARD PANEL -->
+      <div class="panel" id="panel-dash">
+        <div class="dash">
+
+          <div class="dash-pills">
+            <div class="pill" id="pill-mod"><div class="led"></div><div class="pill-txt">
+              <div class="pill-name">M&oacute;dulo</div><div class="pill-val" id="pv-mod">--</div></div></div>
+            <div class="pill" id="pill-sim"><div class="led"></div><div class="pill-txt">
+              <div class="pill-name">SIM</div><div class="pill-val" id="pv-sim">--</div></div></div>
+            <div class="pill" id="pill-net"><div class="led"></div><div class="pill-txt">
+              <div class="pill-name">Rede</div><div class="pill-val" id="pv-net">--</div></div></div>
+            <div class="pill" id="pill-data"><div class="led"></div><div class="pill-txt">
+              <div class="pill-name">Dados</div><div class="pill-val" id="pv-data">--</div></div></div>
+            <div class="pill" id="pill-gps"><div class="led"></div><div class="pill-txt">
+              <div class="pill-name">GPS</div><div class="pill-val" id="pv-gps">--</div></div></div>
+          </div>
+
+          <div class="apn-chips">
+            <span style="font-size:12px;color:var(--text-dim);">Chip:</span>
+            <button class="chip" data-apn="em"           onclick="pickApn(this)">EMnify</button>
+            <button class="chip" data-apn="claro.com.br" onclick="pickApn(this)">Claro</button>
+            <button class="chip" data-apn="zap.vivo.com.br" onclick="pickApn(this)">Vivo</button>
+            <button class="chip" data-apn="timbrasil.br" onclick="pickApn(this)">TIM</button>
+            <button class="chip" data-apn="iot.1nce.net" onclick="pickApn(this)">1NCE</button>
+          </div>
+
+          <div class="dash-hero">
+            <button class="big-btn" id="bringupBtn" onclick="bringUp()">&#9654; Ligar tudo</button>
+            <div class="steps" id="bringupSteps">
+              <div class="step" data-step="at"><span class="ic">&#9675;</span> Responde a comandos AT</div>
+              <div class="step" data-step="sim"><span class="ic">&#9675;</span> SIM pronto</div>
+              <div class="step" data-step="net"><span class="ic">&#9675;</span> Registrado na rede</div>
+              <div class="step" data-step="gprs"><span class="ic">&#9675;</span> Dados (bearer GPRS)</div>
+              <div class="step" data-step="gnss"><span class="ic">&#9675;</span> GNSS ligado e monitorando</div>
+            </div>
+          </div>
+
+          <div class="gauges">
+            <div class="gauge">
+              <div class="gauge-title">Sinal GSM</div>
+              <svg width="150" height="86" viewBox="0 0 150 86" id="g-signal"></svg>
+              <div class="pill-val" id="g-signal-txt">--</div>
+            </div>
+            <div class="gauge">
+              <div class="gauge-title">Velocidade</div>
+              <svg width="150" height="86" viewBox="0 0 150 86" id="g-speed"></svg>
+              <div class="pill-val" id="g-speed-txt">-- km/h</div>
+            </div>
+            <div class="gauge">
+              <div class="gauge-title">Rumo</div>
+              <svg width="150" height="86" viewBox="0 0 150 86" id="g-course"></svg>
+              <div class="pill-val" id="g-course-txt">--</div>
+            </div>
+            <div class="gauge">
+              <div class="gauge-title">Sat&eacute;lites (uso / vis&iacute;veis)</div>
+              <svg width="150" height="86" viewBox="0 0 150 86" id="g-sats"></svg>
+              <div class="pill-val" id="g-sats-txt">-- / --</div>
+            </div>
+          </div>
+
+          <div class="gauge" style="align-items:stretch;">
+            <div class="gauge-title">Hist&oacute;rico &mdash; sinal (verde) e sat&eacute;lites em uso (azul)</div>
+            <svg width="100%" height="120" viewBox="0 0 600 120" preserveAspectRatio="none" id="g-hist"></svg>
+          </div>
+
+        </div>
+      </div>
 
       <!-- TERMINAL PANEL -->
       <div class="panel active" id="panel-terminal">
@@ -2407,7 +2528,7 @@ function simulateResponse(cmd) {
 // ============================================================
 // RESPONSE PARSER
 // ============================================================
-const APP_VERSION = 'v2.1';
+const APP_VERSION = 'v2.2';
 let lastCmdSent = '';
 
 function parseResponse(line) {
@@ -3178,6 +3299,11 @@ function showTab(name, elOrName) {
     if (tab) tab.classList.add('active');
   }
 
+  if (name === 'dash') {
+    dashRefresh();
+    if (connected && !autoGPSTimer) toggleAutoGPS();
+  }
+
   if (name === 'signal' && connected) {
     refreshSignal();
   }
@@ -3453,6 +3579,255 @@ async function btSppSend() {
   }
 }
 
+
+
+// ============================================================
+// PAINEL GRAFICO
+// ============================================================
+const SVGNS = 'http://www.w3.org/2000/svg';
+
+function svgEl(tag, attrs) {
+  const e = document.createElementNS(SVGNS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+
+function setPill(id, state, text) {
+  const el = document.getElementById('pill-' + id);
+  if (!el) return;
+  el.classList.remove('ok', 'warn', 'bad');
+  if (state) el.classList.add(state);
+  document.getElementById('pv-' + id).textContent = text;
+}
+
+// Arco de 180 graus: -90 (esquerda) a +90 (direita).
+function arcPath(cx, cy, r, frac) {
+  const a0 = Math.PI, a1 = Math.PI * (1 - Math.max(0, Math.min(1, frac)));
+  const x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0);
+  const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
+  return `M ${x0} ${y0} A ${r} ${r} 0 ${frac > 0.5 ? 1 : 0} 1 ${x1} ${y1}`;
+}
+
+function drawArcGauge(svgId, frac, color, label) {
+  const svg = document.getElementById(svgId);
+  if (!svg) return;
+  svg.innerHTML = '';
+  svg.appendChild(svgEl('path', {
+    d: arcPath(75, 72, 58, 1), fill: 'none', stroke: '#30363d', 'stroke-width': 11, 'stroke-linecap': 'round'
+  }));
+  if (frac > 0) {
+    svg.appendChild(svgEl('path', {
+      d: arcPath(75, 72, 58, frac), fill: 'none', stroke: color, 'stroke-width': 11, 'stroke-linecap': 'round'
+    }));
+  }
+  const t = svgEl('text', { x: 75, y: 66, 'text-anchor': 'middle', fill: '#c9d1d9',
+                            'font-size': 22, 'font-weight': 700 });
+  t.textContent = label;
+  svg.appendChild(t);
+}
+
+// Rosa dos ventos com a agulha no rumo atual.
+function drawCourse(deg) {
+  const svg = document.getElementById('g-course');
+  if (!svg) return;
+  svg.innerHTML = '';
+  const cx = 75, cy = 43, r = 36;
+  svg.appendChild(svgEl('circle', { cx, cy, r, fill: 'none', stroke: '#30363d', 'stroke-width': 3 }));
+  [['N', 0], ['L', 90], ['S', 180], ['O', 270]].forEach(([lbl, a]) => {
+    const rad = (a - 90) * Math.PI / 180;
+    const t = svgEl('text', { x: cx + (r + 9) * Math.cos(rad), y: cy + (r + 9) * Math.sin(rad) + 4,
+                              'text-anchor': 'middle', fill: '#8b949e', 'font-size': 10 });
+    t.textContent = lbl;
+    svg.appendChild(t);
+  });
+  if (deg === null || isNaN(deg)) return;
+  const rad = (deg - 90) * Math.PI / 180;
+  svg.appendChild(svgEl('line', {
+    x1: cx, y1: cy, x2: cx + (r - 6) * Math.cos(rad), y2: cy + (r - 6) * Math.sin(rad),
+    stroke: '#f85149', 'stroke-width': 3, 'stroke-linecap': 'round'
+  }));
+  svg.appendChild(svgEl('circle', { cx, cy, r: 4, fill: '#f85149' }));
+}
+
+// Barras: satelites em uso sobre visiveis.
+function drawSats(used, view) {
+  const svg = document.getElementById('g-sats');
+  if (!svg) return;
+  svg.innerHTML = '';
+  const n = Math.max(view, used, 8);
+  const w = Math.min(14, 146 / n);
+  for (let i = 0; i < n; i++) {
+    const on = i < used, seen = i < view;
+    svg.appendChild(svgEl('rect', {
+      x: 3 + i * (w + 1.5), y: 20, width: w, height: 56, rx: 2,
+      fill: on ? '#3fb950' : (seen ? '#1f6feb' : '#21262d'),
+      stroke: '#30363d', 'stroke-width': 1
+    }));
+  }
+}
+
+// Historico rolante. Duas series na mesma caixa: RSSI 0-31 e satelites 0-16.
+let histRssi = [];
+let histSats = [];
+const HIST_MAX = 120;
+
+function pushHist(rssi, sats) {
+  if (rssi !== null) histRssi.push(rssi);
+  if (sats !== null) histSats.push(sats);
+  if (histRssi.length > HIST_MAX) histRssi.shift();
+  if (histSats.length > HIST_MAX) histSats.shift();
+  drawHist();
+}
+
+function seriesPath(arr, max) {
+  if (arr.length < 2) return '';
+  const step = 600 / (HIST_MAX - 1);
+  return arr.map((v, i) => {
+    const x = i * step;
+    const y = 114 - (Math.max(0, Math.min(max, v)) / max) * 108;
+    return `${i ? 'L' : 'M'} ${x.toFixed(1)} ${y.toFixed(1)}`;
+  }).join(' ');
+}
+
+function drawHist() {
+  const svg = document.getElementById('g-hist');
+  if (!svg) return;
+  svg.innerHTML = '';
+  [0.25, 0.5, 0.75].forEach(f => svg.appendChild(svgEl('line', {
+    x1: 0, y1: 114 - f * 108, x2: 600, y2: 114 - f * 108, stroke: '#21262d', 'stroke-width': 1
+  })));
+  const pr = seriesPath(histRssi, 31);
+  const ps = seriesPath(histSats, 16);
+  if (pr) svg.appendChild(svgEl('path', { d: pr, fill: 'none', stroke: '#3fb950', 'stroke-width': 2 }));
+  if (ps) svg.appendChild(svgEl('path', { d: ps, fill: 'none', stroke: '#1f6feb', 'stroke-width': 2 }));
+}
+
+// Redesenha a partir do estado que os parsers ja mantem.
+function dashRefresh() {
+  const panel = document.getElementById('panel-dash');
+  if (!panel || !panel.classList.contains('active')) return;
+
+  const rssiTxt = document.getElementById('sig-rssi').textContent;
+  const rssi = /^[0-9]+$/.test(rssiTxt) ? parseInt(rssiTxt) : null;
+  if (rssi === null) {
+    setPill('net', '', 'sem leitura');
+    drawArcGauge('g-signal', 0, '#3fb950', '--');
+  } else {
+    const frac = rssi / 31;
+    const state = rssi >= 15 ? 'ok' : rssi >= 8 ? 'warn' : 'bad';
+    const oper = document.getElementById('sig-oper').textContent;
+    setPill('net', state, oper !== '--' ? oper : `RSSI ${rssi}`);
+    drawArcGauge('g-signal', frac, state === 'ok' ? '#3fb950' : state === 'warn' ? '#e3b341' : '#f85149', String(rssi));
+    document.getElementById('g-signal-txt').textContent = `${-113 + rssi * 2} dBm`;
+  }
+
+  const simTxt = document.getElementById('sig-sim').textContent;
+  setPill('sim', simTxt === '--' ? '' : (/READY/i.test(simTxt) ? 'ok' : 'bad'), simTxt);
+
+  const bearer = document.getElementById('http-bearer').textContent;
+  const gprs   = document.getElementById('sig-gprs').textContent;
+  const hasIp  = /[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+/.test(bearer);
+  setPill('data', hasIp ? 'ok' : (gprs === 'Conectado' ? 'warn' : ''), hasIp ? bearer : gprs);
+
+  const g = lastGnss;
+  const fresh = g.ts && (Date.now() - g.ts) < 20000;
+  if (!g.ts)               setPill('gps', '',     'sem dados');
+  else if (g.run !== '1')  setPill('gps', 'bad',  'desligado');
+  else if (g.fix === '1')  setPill('gps', 'ok',   fresh ? `fix ${g.satUsed} sat` : 'fix antigo');
+  else                     setPill('gps', 'warn', `buscando (${g.satView} vis.)`);
+
+  drawSats(g.satUsed || 0, g.satView || 0);
+  document.getElementById('g-sats-txt').textContent = `${g.satUsed || 0} / ${g.satView || 0}`;
+
+  const spd = g.fix === '1' && g.spd !== null ? g.spd : null;
+  drawArcGauge('g-speed', spd === null ? 0 : Math.min(1, spd / 120), '#1f6feb',
+               spd === null ? '--' : spd.toFixed(0));
+  document.getElementById('g-speed-txt').textContent = spd === null ? '-- km/h' : `${spd.toFixed(1)} km/h`;
+
+  const cog = g.fix === '1' && g.cog !== null ? g.cog : null;
+  drawCourse(cog);
+  document.getElementById('g-course-txt').textContent =
+    cog === null ? '--' : `${cog.toFixed(0)}\u00b0 ${cogToDir(cog)}`;
+
+  pushHist(rssi, g.fix === '1' ? (g.satUsed || 0) : null);
+}
+
+// Escolha do chip por clique: preenche APN e credenciais do preset.
+function pickApn(btn) {
+  document.querySelectorAll('.chip[data-apn]').forEach(c => c.classList.remove('active'));
+  btn.classList.add('active');
+  const apn = btn.dataset.apn;
+  document.getElementById('httpApn').value = apn;
+  applyApnPreset();
+  saveApn(apn,
+    document.getElementById('httpApnUser').value,
+    document.getElementById('httpApnPass').value);
+}
+
+function stepState(name, state) {
+  const el = document.querySelector(`.step[data-step="${name}"]`);
+  if (!el) return;
+  el.classList.remove('run', 'done', 'fail');
+  if (state) el.classList.add(state);
+  const ic = el.querySelector('.ic');
+  ic.textContent = state === 'done' ? '\u2713' : state === 'fail' ? '\u2717' : state === 'run' ? '\u25CF' : '\u25CB';
+}
+
+// Bring-up completo em um clique: nada aqui exige digitar comando.
+async function bringUp() {
+  const btn = document.getElementById('bringupBtn');
+  btn.disabled = true;
+  ['at', 'sim', 'net', 'gprs', 'gnss'].forEach(n => stepState(n, null));
+
+  const gpsWasPolling = !!autoGPSTimer;
+  if (gpsWasPolling) { clearInterval(autoGPSTimer); autoGPSTimer = null; syncAutoGpsBtn(); }
+
+  try {
+    await withCmdLock(bringUpSeq);
+  } finally {
+    btn.disabled = false;
+    if (!autoGPSTimer) toggleAutoGPS();
+  }
+}
+
+async function bringUpSeq() {
+  stepState('at', 'run');
+  const at = await sendAwait('AT', 5000);
+  if (!at.ok) { stepState('at', 'fail'); log('sys', 'M\u00f3dulo n\u00e3o responde: confira baud e alimenta\u00e7\u00e3o.', 'err'); return; }
+  stepState('at', 'done');
+
+  stepState('sim', 'run');
+  const pin = await sendAwait('AT+CPIN?', 8000);
+  await sendAwait('AT+CSMINS?', 8000);
+  stepState('sim', respHas(pin, /READY/) ? 'done' : 'fail');
+
+  stepState('net', 'run');
+  await sendAwait('AT+CSQ', 8000);
+  const reg = await sendAwait('AT+CREG?', 8000);
+  await sendAwait('AT+COPS?', 10000);
+  stepState('net', respHas(reg, /[+]CREG:\s*[0-9],\s*[15]/) ? 'done' : 'fail');
+  dashRefresh();
+
+  stepState('gprs', 'run');
+  const apn = document.getElementById('httpApn').value.trim();
+  if (!apn) {
+    stepState('gprs', 'fail');
+    log('sys', 'Escolha o chip nos bot\u00f5es acima antes de ligar os dados.', 'err');
+  } else {
+    await gprsConnectSeq(apn,
+      document.getElementById('httpApnUser').value.trim(),
+      document.getElementById('httpApnPass').value.trim());
+    const st = document.getElementById('http-bearer').textContent;
+    stepState('gprs', /[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+/.test(st) ? 'done' : 'fail');
+  }
+
+  stepState('gnss', 'run');
+  await sendAwait('AT+CGNSPWR=1', 8000);
+  const pwr = await sendAwait('AT+CGNSPWR?', 8000);
+  stepState('gnss', respHas(pwr, /[+]CGNSPWR:\s*1/) ? 'done' : 'fail');
+  await sendAwait('AT+CGNSINF', 10000);
+  dashRefresh();
+}
 
 // ============================================================
 // TRACKER \u2014 NTP + posicao (GPS ou torre) + POST JSON
@@ -4123,6 +4498,7 @@ window.addEventListener('load', () => {
   loadApn();
   trackerLoad();
   setInterval(updateGpsAge, 1000);
+  setInterval(dashRefresh, 2000);
   log('sys', `SIM808 Controller ${APP_VERSION} iniciado.`, 'info');
   log('sys', 'Clique em "Conectar" para abrir porta serial (Web Serial API).', 'info');
   log('sys', 'Sem hardware? Use os botões normalmente — modo simulação ativo.', 'info');
