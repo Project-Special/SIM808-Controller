@@ -1263,7 +1263,7 @@
                   <div class="card-unit">satélites</div>
                 </div>
                 <div class="info-card">
-                  <div class="card-label">GLONASS Visíveis</div>
+                  <div class="card-label">GLONASS em Uso</div>
                   <div class="card-value" id="gps-glo-view">--</div>
                   <div class="card-unit">satélites</div>
                 </div>
@@ -1322,6 +1322,7 @@
             <button class="action-btn" onclick="send('AT+CGNSINF')">🔄 Atualizar</button>
             <button class="action-btn secondary" onclick="gpsOn()">▶️ Ligar GPS</button>
             <button class="action-btn secondary" onclick="gpsOff()">⏹️ Desligar GPS</button>
+            <button class="action-btn secondary" onclick="gpsDiag()" title="Consulta CGNSPWR/CGNSINF/CGPSSTATUS e interpreta o resultado">🩺 Diagnóstico</button>
 
             <!-- URC: módulo envia sozinho -->
             <div style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;">
@@ -2058,6 +2059,8 @@ function simulateResponse(cmd) {
     }
     if (c === 'AT+CGNSPWR=1') { logRx('OK'); return; }
     if (c === 'AT+CGNSPWR=0') { logRx('OK'); return; }
+    if (c === 'AT+CGNSPWR?') { logRx('+CGNSPWR: 1'); logRx('OK'); return; }
+    if (c === 'AT+CGPSSTATUS?') { logRx('+CGPSSTATUS: Location 3D Fix'); logRx('OK'); return; }
     if (c === 'AT+BTPOWER=1') {
       simBtPowerOn = true;
       logRx('OK');
@@ -2292,6 +2295,8 @@ function parseResponse(line) {
   // GPS — resposta direta (AT+CGNSINF) ou URC automático (AT+CGNSURC)
   if (line.startsWith('+CGNSINF:')) parseGNSINF(line);
   if (line.startsWith('+UGNSINF:')) parseGNSINF(line.replace('+UGNSINF:', '+CGNSINF:'));
+  if (line.startsWith('+CGNSPWR:')) parseCGNSPWR(line);
+  if (line.startsWith('+CGPSSTATUS:')) parseCGPSSTATUS(line);
   // Signal
   if (line.startsWith('+CSQ:')) parseCSQ(line);
   // Network
@@ -2328,7 +2333,7 @@ const CGNSINF_FIELDS = [
   { name: 'Reserved (13)',           unit: '',     decode: v => v||'--' },
   { name: 'GNSS Satellites in View', unit: '',     decode: v => v||'--' },
   { name: 'GNSS Satellites Used',    unit: '',     decode: v => v||'--' },
-  { name: 'GLONASS Satellites inView',unit:'',     decode: v => v||'--' },
+  { name: 'GLONASS Satellites Used', unit: '',     decode: v => v||'--' },
   { name: 'Reserved (17)',           unit: '',     decode: v => v||'--' },
   { name: 'C/N0 max',                unit: 'dBHz', decode: v => v ? `${v} dBHz` : '--' },
   { name: 'HPA',                     unit: 'm',    decode: v => v ? `${parseFloat(v).toFixed(1)} m` : '--' },
@@ -2366,6 +2371,17 @@ function parseGNSINF(line) {
 
   const hasFix = fixSt === '1';
   const spdKmh = spd_knot ? (parseFloat(spd_knot)*1.852).toFixed(1) : '--';
+
+  // Guarda o estado para gpsDiag()
+  lastGnss = {
+    ts:      Date.now(),
+    run:     gnssRun,
+    fix:     fixSt,
+    satView: parseInt(satView) || 0,
+    satUsed: parseInt(satUsed) || 0,
+    cn0:     parseFloat(cn0)   || 0,
+    hdop:    hdop
+  };
 
   // --- Banner ---
   const dot   = document.getElementById('gps-fix-dot');
@@ -2676,6 +2692,67 @@ async function sendSMS() {
 // ============================================================
 // AUTO POLL
 // ============================================================
+// Ultimo +CGNSINF recebido — base do diagnostico.
+let lastGnss = { ts: 0, run: '', fix: '', satView: 0, satUsed: 0, cn0: 0, hdop: '' };
+
+function parseCGNSPWR(line) {
+  const m = line.match(/\+CGNSPWR:\s*(\d)/);
+  if (!m) return;
+  const on = m[1] === '1';
+  log('sys', `AT+CGNSPWR? → GNSS ${on ? 'LIGADO' : 'DESLIGADO'}`, on ? 'info' : 'err');
+  if (!on) {
+    document.getElementById('gps-fix-dot').className = 'fix-indicator nofix';
+    document.getElementById('gps-fix-title').textContent = 'GPS Desligado';
+    document.getElementById('gps-fix-sub').textContent   = 'Clique em "Ligar GPS" (AT+CGNSPWR=1)';
+  }
+}
+
+function parseCGPSSTATUS(line) {
+  const m = line.match(/\+CGPSSTATUS:\s*(.+)/);
+  if (!m) return;
+  const raw = m[1].trim().replace(/^"|"$/g, '');
+  const map = {
+    'Location Unknown': 'GNSS sem dados (desligado ou sem antena)',
+    'Location Not Fix': 'Buscando satélites, sem fix',
+    'Location 2D Fix':  '2D fix (sem altitude confiável)',
+    'Location 3D Fix':  '3D fix'
+  };
+  log('sys', `AT+CGPSSTATUS? → ${raw} — ${map[raw] || 'estado desconhecido'}`, raw.includes('Fix') && !raw.includes('Not') ? 'info' : 'err');
+}
+
+// Roda as consultas de estado do GNSS e interpreta o resultado.
+async function gpsDiag() {
+  log('sys', '--- Diagnóstico GNSS ---', 'info');
+  await runQueries(['AT+CGNSPWR?', 'AT+CGNSINF', 'AT+CGPSSTATUS?']);
+  await delay(600);
+  log('sys', gpsVerdict(), 'info');
+}
+
+function gpsVerdict() {
+  const g = lastGnss;
+  if (!g.ts) {
+    return 'Nenhum +CGNSINF recebido. O módulo não respondeu — confira baud rate (padrão 115200), fiação TX/RX e alimentação.';
+  }
+  const age = Math.floor((Date.now() - g.ts) / 1000);
+  if (g.run !== '1') {
+    return 'GNSS DESLIGADO (run status = 0). Envie AT+CGNSPWR=1. Se continuar 0, a fonte não sustenta o módulo — o SIM808 pede picos de ~2 A e o GNSS é o primeiro a cair.';
+  }
+  if (g.fix === '1') {
+    return `Fix OK — ${g.satUsed} satélites em uso, C/N0 ${g.cn0} dBHz, HDOP ${g.hdop}. GPS funcionando.`;
+  }
+  const secs = fixSearchStart ? Math.floor((Date.now() - fixSearchStart) / 1000) : age;
+  if (g.satView === 0 && g.cn0 === 0) {
+    if (secs > 90) {
+      return `SEM RECEPÇÃO DE RF: 0 satélites visíveis e C/N0 = 0 após ${secs}s. Isso não é falta de tempo, é caminho de antena. Verifique: (1) a antena está no conector GNSS, não no da GSM; (2) antena ativa precisa dos ~3 V do pino VANT/GPS_ANT da placa — sem essa alimentação o LNA fica morto; (3) encaixe do U.FL/SMA; (4) antena com vista para o céu, não sob laje ou película metalizada.`;
+    }
+    return `Ainda sem satélites (${secs}s). Cold start sem almanaque leva 1–3 min a céu aberto — aguarde antes de mexer na antena.`;
+  }
+  if (g.satUsed < 4) {
+    return `Antena está recebendo (${g.satView} satélites visíveis, C/N0 ${g.cn0} dBHz), mas só ${g.satUsed} em uso — faltam satélites para fix 3D (mínimo 4). É obstrução de céu: leve a antena para fora ou para o meio de uma janela e aguarde.`;
+  }
+  return `${g.satUsed}/${g.satView} satélites, C/N0 ${g.cn0} dBHz, HDOP ${g.hdop} — recepção OK, aguardando o módulo fechar o fix (${secs}s).`;
+}
+
 function urcStart() {
   const n = document.getElementById('urcInterval').value;
   send(`AT+CGNSURC=${n}`);
@@ -2687,10 +2764,14 @@ function urcStop() {
   log('sys', 'GNSS URC desativado.', 'info');
 }
 
-function gpsOn() {
-  send('AT+CGNSPWR=1');
-  log('sys', 'GPS ligado. Aguardando fix...', 'info');
-  setTimeout(() => send('AT+CGNSINF'), 1500);
+async function gpsOn() {
+  fixSearchStart = null;
+  await runQueries(['AT+CGNSPWR=1', 'AT+CGNSPWR?']);
+  log('sys', 'GPS ligado. Aguardando fix (cold start: 1–3 min a céu aberto).', 'info');
+  await delay(1200);
+  send('AT+CGNSINF');
+  // Sem poll o painel congela no primeiro frame — liga sozinho.
+  if (!autoGPSTimer) toggleAutoGPS();
 }
 
 function gpsOff() {
@@ -2788,6 +2869,10 @@ function showTab(name, elOrName) {
 
   if (name === 'signal' && connected) {
     refreshSignal();
+  }
+
+  if (name === 'gps' && connected && !autoGPSTimer) {
+    send('AT+CGNSINF');
   }
 
   if (name === 'map') {
