@@ -1481,10 +1481,39 @@
         <div class="http-panel">
           <h3 style="font-size:14px;color:var(--text-dim);">Cliente HTTP (SIM808)</h3>
 
+          <!-- Sem bearer GPRS aberto o HTTPACTION sempre volta 601. -->
+          <div class="form-row">
+            <div class="form-group">
+              <label>APN</label>
+              <input id="httpApn" type="text" list="apnList" placeholder="claro.com.br" />
+              <datalist id="apnList">
+                <option value="claro.com.br">Claro</option>
+                <option value="zap.vivo.com.br">Vivo</option>
+                <option value="timbrasil.br">TIM</option>
+                <option value="gprs.oi.com.br">Oi</option>
+                <option value="java.algar.com.br">Algar</option>
+              </datalist>
+            </div>
+            <div class="form-group" style="max-width:150px;">
+              <label>Usuario</label>
+              <input id="httpApnUser" type="text" placeholder="claro" />
+            </div>
+            <div class="form-group" style="max-width:150px;">
+              <label>Senha</label>
+              <input id="httpApnPass" type="text" placeholder="claro" />
+            </div>
+          </div>
+
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button class="action-btn" onclick="gprsConnect()">&#128268; Conectar GPRS</button>
+            <button class="action-btn secondary" onclick="gprsStatus()">&#10067; Status bearer</button>
+            <button class="action-btn secondary" onclick="gprsClose()">&#10060; Fechar GPRS</button>
+          </div>
+
           <div class="form-row">
             <div class="form-group">
               <label>URL</label>
-              <input id="httpUrlInput" type="text" placeholder="https://httpbin.org/get" />
+              <input id="httpUrlInput" type="text" placeholder="http://httpbin.org/get" />
             </div>
             <div class="form-group" style="max-width:180px;">
               <label>Método</label>
@@ -1497,6 +1526,7 @@
           </div>
 
           <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button class="action-btn" onclick="httpRequest()">&#9654;&#65039; Requisicao completa</button>
             <button class="action-btn secondary" onclick="httpInit()">HTTPINIT</button>
             <button class="action-btn secondary" onclick="httpSetURLFromInput()">HTTPPARA URL</button>
             <button class="action-btn" onclick="httpActionFromPanel()">HTTPACTION</button>
@@ -1520,6 +1550,11 @@
             <div class="info-card">
               <div class="card-label">Bytes</div>
               <div class="card-value" id="http-bytes" style="font-size:15px;">0</div>
+            </div>
+            <div class="info-card">
+              <div class="card-label">Bearer GPRS</div>
+              <div class="card-value" id="http-bearer" style="font-size:14px;">--</div>
+              <div class="card-unit">AT+SAPBR</div>
             </div>
           </div>
 
@@ -2185,6 +2220,11 @@ function simulateResponse(cmd) {
       logRx('>');
       return;
     }
+    if (c.startsWith('AT+SAPBR=3,')) { logRx('OK'); return; }
+    if (c === 'AT+SAPBR=1,1') { logRx('OK'); return; }
+    if (c === 'AT+SAPBR=2,1') { logRx('+SAPBR: 1,1,"10.171.32.44"'); logRx('OK'); return; }
+    if (c === 'AT+SAPBR=0,1') { logRx('OK'); return; }
+    if (c === 'AT+CGATT=1' || c === 'AT+HTTPSSL=1') { logRx('OK'); return; }
     if (c === 'AT+HTTPINIT') {
       simHttpInited = true;
       logRx('OK');
@@ -2286,7 +2326,7 @@ function simulateResponse(cmd) {
 // ============================================================
 // RESPONSE PARSER
 // ============================================================
-const APP_VERSION = 'v1.5';
+const APP_VERSION = 'v1.6';
 let lastCmdSent = '';
 
 function parseResponse(line) {
@@ -2336,6 +2376,7 @@ function parseResponseInner(line) {
   if (line.startsWith('P:') || line.startsWith('C:')) parseBTEvent(line);
   if (line.startsWith('+CREG:')) parseCREG(line);
   if (line.startsWith('+COPS:')) parseCOPS(line);
+  if (line.startsWith('+SAPBR:')) parseSAPBR(line);
   if (line.startsWith('+HTTPACTION:')) parseHTTPACTION(line);
   if (line.startsWith('+HTTPREAD:')) parseHTTPREAD(line);
   if (line.startsWith('+CLCC:')) parseCLCC(line);
@@ -2681,7 +2722,11 @@ function parseHTTPACTION(line) {
   if (elStatus) elStatus.textContent = status;
   if (elBytes)  elBytes.textContent  = len;
   if (elState)  elState.textContent  = 'Ação concluída';
-  log('sys', `HTTP ${method} concluído: status ${status}, ${len} bytes`, status === '200' ? 'ok' : 'err');
+  const hint = HTTP_ACTION_ERRORS[status] ? ` — ${HTTP_ACTION_ERRORS[status]}` : '';
+  log('sys', `HTTP ${method} concluído: status ${status}, ${len} bytes${hint}`, status === '200' ? 'ok' : 'err');
+
+  // Ler o corpo é sempre o passo seguinte; não faz sentido exigir outro clique.
+  if (parseInt(len) > 0) setTimeout(() => send('AT+HTTPREAD'), 300);
 }
 
 function parseHTTPREAD(line) {
@@ -2899,9 +2944,10 @@ async function runQueries(cmds) {
   if (signalQueryBusy) return;
   signalQueryBusy = true;
   try {
-    for (const c of cmds) {
+    for (const item of cmds) {
+      const [c, wait] = Array.isArray(item) ? item : [item, 400];
       await send(c);
-      await delay(400);
+      await delay(wait);
     }
   } finally {
     signalQueryBusy = false;
@@ -3221,6 +3267,99 @@ async function btSppSend() {
   }
 }
 
+// ── GPRS bearer ──────────────────────────────────────
+// O stack HTTP do SIM808 usa o bearer 1; sem SAPBR aberto todo HTTPACTION
+// volta 601. A APN fica no localStorage porque é sempre o mesmo chip.
+function loadApn() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('sim808.apn') || '{}');
+    if (saved.apn)  document.getElementById('httpApn').value     = saved.apn;
+    if (saved.user) document.getElementById('httpApnUser').value = saved.user;
+    if (saved.pass) document.getElementById('httpApnPass').value = saved.pass;
+  } catch (_) {}
+}
+
+function saveApn(apn, user, pass) {
+  try { localStorage.setItem('sim808.apn', JSON.stringify({ apn, user, pass })); } catch (_) {}
+}
+
+async function gprsConnect() {
+  const apn  = document.getElementById('httpApn').value.trim();
+  const user = document.getElementById('httpApnUser').value.trim();
+  const pass = document.getElementById('httpApnPass').value.trim();
+  if (!apn) { alert('Informe a APN da operadora.'); return; }
+  saveApn(apn, user, pass);
+
+  const seq = [
+    ['AT+CGATT=1', 1000],
+    ['AT+SAPBR=3,1,"Contype","GPRS"', 400],
+    [`AT+SAPBR=3,1,"APN","${apn}"`, 400]
+  ];
+  if (user) seq.push([`AT+SAPBR=3,1,"USER","${user}"`, 400]);
+  if (pass) seq.push([`AT+SAPBR=3,1,"PWD","${pass}"`, 400]);
+  // Abrir o bearer negocia com a rede e leva alguns segundos.
+  seq.push(['AT+SAPBR=1,1', 6000]);
+  seq.push(['AT+SAPBR=2,1', 400]);
+
+  log('sys', `Abrindo bearer GPRS na APN "${apn}"...`, 'info');
+  await runQueries(seq);
+}
+
+function gprsStatus() { return runQueries(['AT+CGATT?', 'AT+SAPBR=2,1']); }
+function gprsClose()  { return runQueries(['AT+HTTPTERM', 'AT+SAPBR=0,1']); }
+
+function parseSAPBR(line) {
+  const m = line.match(/\+SAPBR:\s*(\d+),(\d+)(?:,"?([^",]*)"?)?/);
+  if (!m) return;
+  const st = m[2];
+  const ip = m[3] || '';
+  const map = { '0': 'Conectando', '1': 'Conectado', '2': 'Fechando', '3': 'Fechado' };
+  const el = document.getElementById('http-bearer');
+  if (el) el.textContent = st === '1' && ip ? ip : (map[st] || st);
+  if (st === '1') log('sys', `Bearer GPRS aberto — IP ${ip || '(sem IP)'}`, 'ok');
+  else log('sys', `Bearer GPRS: ${map[st] || st} — rode "Conectar GPRS" antes da requisição.`, 'err');
+}
+
+// Sequência completa: na mão é preciso acertar HTTPINIT → CID → URL → ACTION,
+// e qualquer passo fora de ordem devolve ERROR.
+async function httpRequest() {
+  const url = document.getElementById('httpUrlInput').value.trim();
+  if (!url) { alert('Informe uma URL.'); return; }
+  const method = parseInt(document.getElementById('httpMethodInput').value, 10) || 0;
+  const isHttps = /^https:/i.test(url);
+
+  if (isHttps) {
+    log('sys', 'URL HTTPS: o SIM808 só fala TLS 1.0, que praticamente todo servidor atual recusa. Se falhar, teste com http://', 'err');
+  }
+
+  const seq = [
+    ['AT+HTTPTERM', 300],                       // ignora ERROR se nao havia sessao
+    ['AT+HTTPINIT', 400],
+    ['AT+HTTPPARA="CID",1', 300],
+    [`AT+HTTPPARA="URL","${url.replace(/"/g, '%22')}"`, 300]
+  ];
+  if (isHttps) seq.push(['AT+HTTPSSL=1', 300]);
+  seq.push([`AT+HTTPACTION=${method}`, 300]);
+
+  document.getElementById('http-method').textContent = ({0:'GET',1:'POST',2:'HEAD'}[method]);
+  document.getElementById('http-state').textContent  = 'Executando ação';
+  setHttpResponse('');
+  await runQueries(seq);
+  log('sys', 'Aguardando +HTTPACTION (a rede pode levar até 30s)...', 'info');
+}
+
+const HTTP_ACTION_ERRORS = {
+  '601': 'erro de rede — bearer GPRS não está aberto (rode "Conectar GPRS")',
+  '602': 'sem memória no módulo',
+  '603': 'falha de DNS — APN aberta mas sem resolução de nome',
+  '604': 'stack ocupado — rode AT+HTTPTERM e tente de novo',
+  '605': 'timeout esperando o servidor',
+  '606': 'sem conexão de rede',
+  '400': 'requisição inválida',
+  '404': 'não encontrado no servidor',
+  '408': 'timeout do servidor'
+};
+
 function httpInit() {
   send('AT+HTTPINIT');
   setTimeout(() => send('AT+HTTPPARA="CID",1'), 120);
@@ -3454,6 +3593,7 @@ window.addEventListener('load', () => {
 
   document.getElementById('appVersion').textContent = APP_VERSION;
   syncAutoGpsBtn();
+  loadApn();
   setInterval(updateGpsAge, 1000);
   log('sys', `SIM808 Controller ${APP_VERSION} iniciado.`, 'info');
   log('sys', 'Clique em "Conectar" para abrir porta serial (Web Serial API).', 'info');
