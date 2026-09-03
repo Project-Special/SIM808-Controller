@@ -2335,7 +2335,7 @@ function simulateResponse(cmd) {
 // ============================================================
 // RESPONSE PARSER
 // ============================================================
-const APP_VERSION = 'v1.8';
+const APP_VERSION = 'v1.9';
 let lastCmdSent = '';
 
 function parseResponse(line) {
@@ -2770,7 +2770,10 @@ function parseHTTPACTION(line) {
   if (elStatus) elStatus.textContent = status;
   if (elBytes)  elBytes.textContent  = len;
   if (elState)  elState.textContent  = 'Ação concluída';
-  const hint = HTTP_ACTION_ERRORS[status] ? ` — ${HTTP_ACTION_ERRORS[status]}` : '';
+  let hint = HTTP_ACTION_ERRORS[status] ? ` \u2014 ${HTTP_ACTION_ERRORS[status]}` : '';
+  if (status === '603' && lastHttpWasHttps) {
+    hint = ' \u2014 a URL e https e o modulo nao tem SSL; o 603 aqui e o esquema, nao o DNS. Use http://';
+  }
   log('sys', `HTTP ${method} concluído: status ${status}, ${len} bytes${hint}`, status === '200' ? 'ok' : 'err');
 
   // Ler o corpo é sempre o passo seguinte; não faz sentido exigir outro clique.
@@ -3475,36 +3478,69 @@ function parseSAPBR(line) {
 
 // Sequência completa: na mão é preciso acertar HTTPINIT → CID → URL → ACTION,
 // e qualquer passo fora de ordem devolve ERROR.
+let lastHttpWasHttps = false;
+
 async function httpRequest() {
   const url = document.getElementById('httpUrlInput').value.trim();
   if (!url) { alert('Informe uma URL.'); return; }
   const method = parseInt(document.getElementById('httpMethodInput').value, 10) || 0;
-  const isHttps = /^https:/i.test(url);
 
-  if (isHttps) {
-    log('sys', 'URL HTTPS: o SIM808 só fala TLS 1.0, que praticamente todo servidor atual recusa. Se falhar, teste com http://', 'err');
+  // O poll do GPS resolveria o sendAwait errado no meio da sequencia.
+  const gpsWasPolling = !!autoGPSTimer;
+  if (gpsWasPolling) { clearInterval(autoGPSTimer); autoGPSTimer = null; syncAutoGpsBtn(); }
+  try {
+    await withCmdLock(() => httpRequestSeq(url, method));
+  } finally {
+    if (gpsWasPolling && !autoGPSTimer) toggleAutoGPS();
   }
+}
 
-  const seq = [
-    ['AT+HTTPTERM', 300],                       // ignora ERROR se nao havia sessao
-    ['AT+HTTPINIT', 400],
-    ['AT+HTTPPARA="CID",1', 300],
-    [`AT+HTTPPARA="URL","${url.replace(/"/g, '%22')}"`, 300]
-  ];
-  if (isHttps) seq.push(['AT+HTTPSSL=1', 300]);
-  seq.push([`AT+HTTPACTION=${method}`, 300]);
+function httpAbort(msg) {
+  log('sys', msg, 'err');
+  document.getElementById('http-state').textContent = 'Abortado';
+  sendAwait('AT+HTTPTERM', 5000);
+}
+
+async function httpRequestSeq(url, method) {
+  const isHttps = /^https:/i.test(url);
+  lastHttpWasHttps = isHttps;
 
   document.getElementById('http-method').textContent = ({0:'GET',1:'POST',2:'HEAD'}[method]);
-  document.getElementById('http-state').textContent  = 'Executando ação';
+  document.getElementById('http-state').textContent  = 'Executando a\u00e7\u00e3o';
+  document.getElementById('http-status').textContent = '--';
   setHttpResponse('');
-  await runQueries(seq);
-  log('sys', 'Aguardando +HTTPACTION (a rede pode levar até 30s)...', 'info');
+
+  await sendAwait('AT+HTTPTERM', 5000);   // ERROR aqui e esperado se nao havia sessao
+
+  const init = await sendAwait('AT+HTTPINIT', 10000);
+  if (!init.ok) {
+    httpAbort('AT+HTTPINIT falhou. Quase sempre e o bearer GPRS fechado \u2014 rode "Conectar GPRS" e confira o IP no card Bearer.');
+    return;
+  }
+
+  await sendAwait('AT+HTTPPARA="CID",1', 8000);
+
+  const up = await sendAwait(`AT+HTTPPARA="URL","${url.replace(/"/g, '%22')}"`, 10000);
+  if (!up.ok) { httpAbort('O modulo recusou a URL. Verifique aspas e caracteres especiais.'); return; }
+
+  if (isHttps) {
+    const ssl = await sendAwait('AT+HTTPSSL=1', 8000);
+    if (!ssl.ok) {
+      // Sem SSL o modulo nao entende o esquema https e devolve 603, que parece
+      // erro de DNS e manda o diagnostico para o lado errado.
+      httpAbort('AT+HTTPSSL=1 retornou ERROR: este firmware do modulo nao tem SSL, entao HTTPS e imposs\u00edvel aqui \u2014 nem adianta insistir. Troque a URL para http:// (ou ponha um proxy HTTP na frente do servi\u00e7o).');
+      return;
+    }
+  }
+
+  await sendAwait(`AT+HTTPACTION=${method}`, 10000);
+  log('sys', 'Aguardando +HTTPACTION (a rede pode levar at\u00e9 30s)...', 'info');
 }
 
 const HTTP_ACTION_ERRORS = {
   '601': 'erro de rede — bearer GPRS não está aberto (rode "Conectar GPRS")',
   '602': 'sem memória no módulo',
-  '603': 'falha de DNS — APN aberta mas sem resolução de nome',
+  '603': 'falha de DNS \u2014 APN aberta mas sem resolu\u00e7\u00e3o de nome. Se persistir, fixe o DNS: AT+CDNSCFG="8.8.8.8","8.8.4.4"',
   '604': 'stack ocupado — rode AT+HTTPTERM e tente de novo',
   '605': 'timeout esperando o servidor',
   '606': 'sem conexão de rede',
