@@ -1,5 +1,5 @@
 // SIM808 Controller — Service Worker
-const CACHE = 'sim808-v3';
+const CACHE = 'sim808-v4';
 const PRECACHE = [
   './index.html',
   './manifest.json',

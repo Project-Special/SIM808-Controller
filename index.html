@@ -1457,6 +1457,7 @@
             <span id="map-spd"   style="color:var(--text-dim);"></span>
             <span id="map-sat"   style="color:var(--text-dim);"></span>
             <span id="map-hdop"  style="color:var(--text-dim);"></span>
+            <span id="map-acc"   style="color:var(--text-dim);"></span>
           </div>
 
           <div id="map-controls" style="
@@ -2283,7 +2284,7 @@ function simulateResponse(cmd) {
 // ============================================================
 // RESPONSE PARSER
 // ============================================================
-const APP_VERSION = 'v1.3';
+const APP_VERSION = 'v1.4';
 let lastCmdSent = '';
 
 function parseResponse(line) {
@@ -2471,8 +2472,16 @@ function parseGNSINF(line) {
 
     const latN = parseFloat(lat);
     const lonN = parseFloat(lon);
+    // HPA e o erro horizontal reportado pelo modulo; muitos firmwares SIM808
+    // deixam o campo vazio, ai estima-se por HDOP x UERE (~5 m).
+    const hpaN = parseFloat(hpa);
+    const acc  = hpaN > 0 ? hpaN : (parseFloat(hdop) > 0 ? parseFloat(hdop) * 5 : 0);
     const info = `Alt: ${alt?parseFloat(alt).toFixed(0):'--'}m | ${spdKmh} km/h | Sat: ${satUsed}/${satView} | HDOP: ${hdop}`;
-    mapUpdate(latN, lonN, info);
+    mapUpdate(latN, lonN, info, acc);
+
+    document.getElementById('map-acc').textContent = acc
+      ? `±${acc.toFixed(0)} m${hpaN > 0 ? '' : ' (est.)'}`
+      : '';
 
     // atualiza infobar do mapa
     document.getElementById('map-spd').textContent  = `🚀 ${spdKmh} km/h`;
@@ -3264,6 +3273,7 @@ function confirmReset() {
 // ============================================================
 let mapObj       = null;
 let mapMarker    = null;
+let mapAccCircle = null;
 let mapTrack     = null;
 let mapFollow    = true;
 let mapTrackPts  = [];
@@ -3319,6 +3329,13 @@ function initMap() {
     iconSize: [32, 42], iconAnchor: [16, 40]
   });
 
+  // Raio de incerteza da posicao — o marcador sozinho sugere uma precisao
+  // que o GPS nao tem.
+  mapAccCircle = L.circle([0,0], {
+    radius: 0, color: '#58a6ff', weight: 1, opacity: 0.5,
+    fillColor: '#58a6ff', fillOpacity: 0.10
+  }).addTo(mapObj);
+
   mapMarker = L.marker([0,0], { icon }).addTo(mapObj);
   mapTrack  = L.polyline([], { color:'#58a6ff', weight:2, opacity:0.7 }).addTo(mapObj);
 
@@ -3327,6 +3344,7 @@ function initMap() {
     mapTrack.setLatLngs(mapTrackPts);
     const last = mapTrackPts[mapTrackPts.length - 1];
     mapMarker.setLatLng(last);
+    if (mapLastAcc > 0) mapAccCircle.setLatLng(last).setRadius(mapLastAcc);
     if (mapFollow) mapObj.setView(last, 16);
   }
 
@@ -3338,16 +3356,20 @@ function initMap() {
   setTimeout(() => resizeMap(), 120);
 }
 
-function mapUpdate(lat, lon, info) {
+let mapLastAcc = 0;  // raio de incerteza (m) do ultimo ponto
+
+function mapUpdate(lat, lon, info, acc) {
   const ll = [lat, lon];
   mapTrackPts.push(ll);
+  mapLastAcc = acc > 0 ? acc : 0;
   document.getElementById('map-coord').textContent = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
 
   if (!mapObj) return; // inicializa ao abrir a aba
 
   mapMarker.setLatLng(ll);
+  mapAccCircle.setLatLng(ll).setRadius(mapLastAcc);
   mapMarker.bindPopup(
-    `<b>${lat.toFixed(6)}, ${lon.toFixed(6)}</b><br>${info}`
+    `<b>${lat.toFixed(6)}, ${lon.toFixed(6)}</b><br>${info}<br>Incerteza: ±${mapLastAcc ? mapLastAcc.toFixed(0)+' m' : '--'}`
   );
   mapTrack.setLatLngs(mapTrackPts);
   if (mapFollow) mapObj.setView(ll, Math.max(mapObj.getZoom(), 16));
