@@ -607,6 +607,29 @@
     }
     .action-btn.secondary:hover { border-color: #58a6ff44; }
 
+    /* Estados de progresso: o usuario precisa ver que a sequencia AT esta
+       rodando, ela leva varios segundos sem nenhum retorno visual. */
+    .action-btn.busy,
+    .action-btn.busy:hover { background: var(--warn); color: #1a1200; cursor: progress; }
+    .action-btn.ok,
+    .action-btn.ok:hover   { background: var(--green); color: #04240c; }
+    .action-btn.fail,
+    .action-btn.fail:hover { background: var(--danger); color: #fff; }
+    .action-btn:disabled   { opacity: .85; cursor: progress; }
+
+    .action-btn.busy::before {
+      content: '';
+      display: inline-block;
+      width: 11px; height: 11px;
+      margin-right: 7px;
+      vertical-align: -1px;
+      border: 2px solid #1a120055;
+      border-top-color: #1a1200;
+      border-radius: 50%;
+      animation: btnspin .7s linear infinite;
+    }
+    @keyframes btnspin { to { transform: rotate(360deg); } }
+
     /* SIGNAL PANEL */
     .signal-panel {
       flex: 1;
@@ -1637,7 +1660,7 @@
           </div>
 
           <div style="display:flex;gap:10px;flex-wrap:wrap;">
-            <button class="action-btn" onclick="gprsConnect()">&#128268; Conectar GPRS</button>
+            <button class="action-btn" id="gprsBtn" onclick="gprsConnect()">&#128268; Conectar GPRS</button>
             <button class="action-btn secondary" onclick="gprsStatus()">&#10067; Status bearer</button>
             <button class="action-btn secondary" onclick="gprsClose()">&#10060; Fechar GPRS</button>
           </div>
@@ -1658,7 +1681,7 @@
           </div>
 
           <div style="display:flex;gap:10px;flex-wrap:wrap;">
-            <button class="action-btn" onclick="httpRequest()">&#9654;&#65039; Requisicao completa</button>
+            <button class="action-btn" id="httpReqBtn" onclick="httpRequest()">&#9654;&#65039; Requisicao completa</button>
             <button class="action-btn secondary" onclick="httpInit()">HTTPINIT</button>
             <button class="action-btn secondary" onclick="httpSetURLFromInput()">HTTPPARA URL</button>
             <button class="action-btn" onclick="httpActionFromPanel()">HTTPACTION</button>
@@ -2542,7 +2565,7 @@ function simulateResponse(cmd) {
 // ============================================================
 // RESPONSE PARSER
 // ============================================================
-const APP_VERSION = 'v2.4';
+const APP_VERSION = 'v2.5';
 let lastCmdSent = '';
 
 function parseResponse(line) {
@@ -3029,6 +3052,8 @@ function parseHTTPACTION(line) {
   if (elStatus) elStatus.textContent = status;
   if (elBytes)  elBytes.textContent  = len;
   if (elState)  elState.textContent  = 'Ação concluída';
+  setBtnState('httpReqBtn', status === '200' ? 'ok' : 'fail',
+              status === '200' ? '\u2713 HTTP 200' : `\u26A0 HTTP ${status}`);
   let hint = HTTP_ACTION_ERRORS[status] ? ` \u2014 ${HTTP_ACTION_ERRORS[status]}` : '';
   if (status === '603' && lastHttpWasHttps) {
     hint = ' \u2014 a URL e https e o modulo nao tem SSL; o 603 aqui e o esquema, nao o DNS. Use http://';
@@ -4103,6 +4128,16 @@ function saveApn(apn, user, pass) {
   try { localStorage.setItem('sim808.apn', JSON.stringify({ apn, user, pass })); } catch (_) {}
 }
 
+// idle | busy | ok | fail  \u2014 texto e cor do botao acompanham a sequencia.
+function setBtnState(id, state, text) {
+  const b = document.getElementById(id);
+  if (!b) return;
+  b.classList.remove('busy', 'ok', 'fail');
+  if (state === 'busy' || state === 'ok' || state === 'fail') b.classList.add(state);
+  b.disabled = state === 'busy';
+  if (text) b.textContent = text;
+}
+
 async function gprsConnect() {
   const apn  = document.getElementById('httpApn').value.trim();
   const user = document.getElementById('httpApnUser').value.trim();
@@ -4115,10 +4150,16 @@ async function gprsConnect() {
   const gpsWasPolling = !!autoGPSTimer;
   if (gpsWasPolling) { clearInterval(autoGPSTimer); autoGPSTimer = null; syncAutoGpsBtn(); }
 
+  setBtnState('gprsBtn', 'busy', 'Conectando...');
   try {
     await withCmdLock(() => gprsConnectSeq(apn, user, pass));
   } finally {
     if (gpsWasPolling && !autoGPSTimer) toggleAutoGPS();
+    // parseSAPBR ja pintou o botao com o resultado; se nem chegou la, foi falha.
+    const b = document.getElementById('gprsBtn');
+    if (b && b.classList.contains('busy')) {
+      setBtnState('gprsBtn', 'fail', '\u26A0 Falhou \u2014 tentar de novo');
+    }
   }
 }
 
@@ -4197,7 +4238,11 @@ async function gprsFailReport(attached) {
 }
 
 function gprsStatus() { return runQueries(['AT+CGATT?', 'AT+SAPBR=2,1']); }
-function gprsClose()  { return runQueries(['AT+HTTPTERM', 'AT+SAPBR=0,1']); }
+function gprsClose() {
+  setBtnState('gprsBtn', 'idle', '\u{1F50C} Conectar GPRS');
+  document.getElementById('http-bearer').textContent = '--';
+  return runQueries(['AT+HTTPTERM', 'AT+SAPBR=0,1']);
+}
 
 function parseSAPBR(line) {
   const m = line.match(/\+SAPBR:\s*(\d+),(\d+)(?:,"?([^",]*)"?)?/);
@@ -4207,8 +4252,17 @@ function parseSAPBR(line) {
   const map = { '0': 'Conectando', '1': 'Conectado', '2': 'Fechando', '3': 'Fechado' };
   const el = document.getElementById('http-bearer');
   if (el) el.textContent = st === '1' && ip ? ip : (map[st] || st);
-  if (st === '1') log('sys', `Bearer GPRS aberto — IP ${ip || '(sem IP)'}`, 'ok');
-  else log('sys', `Bearer GPRS: ${map[st] || st} — rode "Conectar GPRS" antes da requisição.`, 'err');
+  if (st === '1') {
+    log('sys', `Bearer GPRS aberto — IP ${ip || '(sem IP)'}`, 'ok');
+    setBtnState('gprsBtn', 'ok', `\u2713 Conectado ${ip || ''}`.trim());
+  } else {
+    log('sys', `Bearer GPRS: ${map[st] || st} — rode "Conectar GPRS" antes da requisição.`, 'err');
+    // "Fechando/Fechado" no meio de uma tentativa ainda nao e veredito.
+    const b = document.getElementById('gprsBtn');
+    if (!b || !b.classList.contains('busy')) {
+      setBtnState('gprsBtn', 'fail', '\u26A0 Sem bearer \u2014 conectar GPRS');
+    }
+  }
 }
 
 // Sequência completa: na mão é preciso acertar HTTPINIT → CID → URL → ACTION,
@@ -4226,6 +4280,7 @@ async function httpRequest() {
   // O poll do GPS resolveria o sendAwait errado no meio da sequencia.
   const gpsWasPolling = !!autoGPSTimer;
   if (gpsWasPolling) { clearInterval(autoGPSTimer); autoGPSTimer = null; syncAutoGpsBtn(); }
+  setBtnState('httpReqBtn', 'busy', 'Enviando...');
   try {
     await withCmdLock(() => httpRequestSeq(url, method));
   } finally {
@@ -4235,6 +4290,7 @@ async function httpRequest() {
 
 function httpAbort(msg) {
   log('sys', msg, 'err');
+  setBtnState('httpReqBtn', 'fail', '\u26A0 Abortado');
   document.getElementById('http-state').textContent = 'Abortado';
   sendAwait('AT+HTTPTERM', 5000);
 }
@@ -4246,6 +4302,7 @@ async function httpRequestSeq(url, method) {
   // Ja sabemos que este modulo nao faz TLS: nao vale gastar a sequencia toda.
   if (isHttps && moduleHasSsl === false) {
     log('sys', 'Este modulo ja respondeu ERROR ao AT+HTTPSSL: nao tem SSL. Troque a URL para http:// \u2014 a requisi\u00e7\u00e3o nem foi enviada.', 'err');
+    setBtnState('httpReqBtn', 'fail', '\u26A0 HTTPS indispon\u00edvel');
     document.getElementById('http-state').textContent = 'HTTPS indispon\u00edvel';
     return;
   }
