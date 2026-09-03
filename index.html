@@ -1400,7 +1400,7 @@
             <div class="info-card">
               <div class="card-label">Operadora</div>
               <div class="card-value" id="sig-oper" style="font-size:16px;">--</div>
-              <div class="card-unit"></div>
+              <div class="card-unit">AT+COPS</div>
             </div>
             <div class="info-card">
               <div class="card-label">Registro</div>
@@ -1431,9 +1431,11 @@
           </div>
 
           <div style="display:flex;gap:10px;flex-wrap:wrap;">
-            <button class="action-btn" onclick="send('AT+CSQ')">📊 Atualizar Sinal</button>
+            <button class="action-btn" onclick="refreshSignal()">📊 Atualizar Tudo</button>
+            <button class="action-btn secondary" onclick="send('AT+CSQ')">📊 Sinal</button>
             <button class="action-btn secondary" onclick="send('AT+COPS?')">🏢 Operadora</button>
             <button class="action-btn secondary" onclick="send('AT+CREG?')">📶 Registro</button>
+            <button class="action-btn secondary" onclick="refreshSim()">💳 SIM / GPRS</button>
             <button class="action-btn secondary" onclick="toggleAutoSignal()">⚡ Auto (10s)</button>
           </div>
         </div>
@@ -1683,6 +1685,8 @@ async function connect() {
   } else {
     await connectSerial();
   }
+  // Consulta estado da rede/SIM logo apos conectar (modem precisa de um instante)
+  setTimeout(() => { if (connected || connectedTransport) refreshSignal(); }, 900);
 }
 
 async function connectSerial() {
@@ -2516,17 +2520,28 @@ function parseCOPS(line) {
   if (m) document.getElementById('sig-oper').textContent = m[1];
 }
 
+let simPinState = null;   // AT+CPIN?   -> READY / SIM PIN / ...
+let simInserted  = null;  // AT+CSMINS? -> cartao presente no slot
+
+function renderSimStatus() {
+  const parts = [];
+  if (simPinState) parts.push(simPinState);
+  if (simInserted !== null) parts.push(simInserted ? 'Inserido' : 'Ausente');
+  document.getElementById('sig-sim').textContent = parts.length ? parts.join(' · ') : '--';
+}
+
 function parseCPIN(line) {
   const m = line.match(/\+CPIN:\s*(.+)/);
   if (!m) return;
-  document.getElementById('sig-sim').textContent = m[1].trim();
+  simPinState = m[1].trim();
+  renderSimStatus();
 }
 
 function parseCSMINS(line) {
   const m = line.match(/\+CSMINS:\s*\d,\s*(\d)/);
   if (!m) return;
-  const inserted = m[1] === '1';
-  document.getElementById('sig-sim').textContent = inserted ? 'READY (Inserido)' : 'Ausente';
+  simInserted = m[1] === '1';
+  renderSimStatus();
 }
 
 function parseCGATT(line) {
@@ -2714,15 +2729,37 @@ function toggleAutoGPS() {
   }
 }
 
+// Consultas do painel Sinal. O SIM808 responde uma por vez: envia
+// espacado, senao o modem descarta os comandos seguintes.
+const SIGNAL_QUERIES = ['AT+CSQ', 'AT+CREG?', 'AT+COPS?', 'AT+CPIN?', 'AT+CSMINS?', 'AT+CGATT?'];
+const SIGNAL_QUERIES_FAST = ['AT+CSQ', 'AT+CREG?'];
+let signalQueryBusy = false;
+
+async function runQueries(cmds) {
+  if (signalQueryBusy) return;
+  signalQueryBusy = true;
+  try {
+    for (const c of cmds) {
+      await send(c);
+      await delay(400);
+    }
+  } finally {
+    signalQueryBusy = false;
+  }
+}
+
+function refreshSignal() { return runQueries(SIGNAL_QUERIES); }
+function refreshSim()    { return runQueries(['AT+CPIN?', 'AT+CSMINS?', 'AT+CGATT?']); }
+
 function toggleAutoSignal() {
   if (autoSignalTimer) {
     clearInterval(autoSignalTimer);
     autoSignalTimer = null;
     log('sys', 'Auto-Sinal desativado.', 'info');
   } else {
-    autoSignalTimer = setInterval(() => send('AT+CSQ'), 10000);
+    autoSignalTimer = setInterval(() => runQueries(SIGNAL_QUERIES_FAST), 10000);
     log('sys', 'Auto-Sinal ativado (10s).', 'info');
-    send('AT+CSQ');
+    refreshSignal();
   }
 }
 
@@ -2747,6 +2784,10 @@ function showTab(name, elOrName) {
   } else {
     const tab = document.querySelector(`.tab[onclick*="'${name}'"]`);
     if (tab) tab.classList.add('active');
+  }
+
+  if (name === 'signal' && connected) {
+    refreshSignal();
   }
 
   if (name === 'map') {
