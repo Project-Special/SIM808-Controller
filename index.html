@@ -811,6 +811,7 @@
   <button class="menu-toggle" onclick="toggleSidebar()" aria-label="Menu">☰</button>
   <span style="font-size:20px;">📡</span>
   <h1>SIM808 Controller</h1>
+  <span id="appVersion" style="font-size:11px;color:var(--text-dim);font-family:var(--mono);"></span>
   <div class="status-badge">
     <div class="dot" id="statusDot"></div>
     <span id="statusText">Desconectado</span>
@@ -2000,6 +2001,7 @@ async function sendBleText(text) {
 }
 
 async function send(cmd) {
+  lastCmdSent = cmd.toUpperCase().trim();
   if (cmdHistory[0] !== cmd) cmdHistory.unshift(cmd);
   if (cmdHistory.length > 50) cmdHistory.pop();
   historyIdx = -1;
@@ -2281,7 +2283,30 @@ function simulateResponse(cmd) {
 // ============================================================
 // RESPONSE PARSER
 // ============================================================
+const APP_VERSION = 'v1.3';
+let lastCmdSent = '';
+
 function parseResponse(line) {
+  try {
+    parseResponseInner(line);
+  } catch (e) {
+    // Sem isso a excecao sobe ate startReading() e derruba o loop de leitura.
+    log('sys', `Erro ao processar "${line}": ${e.message}`, 'err');
+  }
+}
+
+function explainError(line) {
+  const c = lastCmdSent;
+  if (c.startsWith('AT+CGNS') || c.startsWith('AT+CGPS')) {
+    log('sys', `O módulo REJEITOU ${c} (${line}). Comandos GNSS não existem neste firmware — placas SIM800/SIM800L não têm GPS. Confirme o modelo com ATI.`, 'err');
+  } else if (c.startsWith('AT+CSQ') || c.startsWith('AT+CREG') || c.startsWith('AT+COPS') || c.startsWith('AT+CPIN') || c.startsWith('AT+CSMINS') || c.startsWith('AT+CGATT')) {
+    log('sys', `${c} retornou ${line} — módulo sem SIM pronto ou ainda inicializando.`, 'err');
+  }
+}
+
+function parseResponseInner(line) {
+  if (line === 'ERROR' || line.startsWith('+CME ERROR') || line.startsWith('+CMS ERROR')) explainError(line);
+
   if (httpReadPending) {
     if (line === 'OK' || line.startsWith('ERROR') || line.startsWith('+CME ERROR')) {
       httpReadPending = false;
@@ -3358,7 +3383,8 @@ window.addEventListener('load', () => {
   if (btState) btState.textContent = 'BT desligado/inicial';
   if (btVis) btVis.textContent = 'Oculto';
 
-  log('sys', 'SIM808 Controller iniciado.', 'info');
+  document.getElementById('appVersion').textContent = APP_VERSION;
+  log('sys', `SIM808 Controller ${APP_VERSION} iniciado.`, 'info');
   log('sys', 'Clique em "Conectar" para abrir porta serial (Web Serial API).', 'info');
   log('sys', 'Sem hardware? Use os botões normalmente — modo simulação ativo.', 'info');
 
@@ -3374,6 +3400,7 @@ window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js')
       .then(reg => {
         log('sys', `PWA: Service Worker registrado (${reg.scope})`, 'info');
+        reg.update();  // busca sw.js novo a cada carga
         reg.addEventListener('updatefound', () => {
           const nw = reg.installing;
           if (!nw) return;

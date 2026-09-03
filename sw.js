@@ -1,5 +1,5 @@
 // SIM808 Controller — Service Worker
-const CACHE = 'sim808-v1';
+const CACHE = 'sim808-v3';
 const PRECACHE = [
   './index.html',
   './manifest.json',
@@ -26,14 +26,30 @@ self.addEventListener('activate', e => {
   );
 });
 
-// Estratégia: cache-first para recursos locais, network-first para externos
+// Estratégia: network-first para o HTML (senão o app fica preso numa versão
+// antiga do cache), cache-first para o restante.
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
 
   // WebSocket — não interceptar
   if (e.request.url.startsWith('ws://') || e.request.url.startsWith('wss://')) return;
 
-  // Recursos locais — cache first
+  // HTML — network first: uma atualização publicada precisa chegar no próximo reload
+  const isHtml = e.request.mode === 'navigate' || url.pathname.endsWith('.html') || url.pathname === '/';
+  if (url.origin === self.location.origin && isHtml) {
+    e.respondWith(
+      fetch(e.request).then(resp => {
+        if (resp && resp.status === 200) {
+          const clone = resp.clone();
+          caches.open(CACHE).then(c => c.put(e.request, clone));
+        }
+        return resp;
+      }).catch(() => caches.match(e.request).then(c => c || caches.match('./index.html')))
+    );
+    return;
+  }
+
+  // Demais recursos locais — cache first
   if (url.origin === self.location.origin) {
     e.respondWith(
       caches.match(e.request).then(cached => {
