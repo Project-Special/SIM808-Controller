@@ -1146,6 +1146,7 @@
       <div class="tab" onclick="showTab('signal', this)">Sinal</div>
       <div class="tab" onclick="showTab('map', this)">Mapa</div>
       <div class="tab" onclick="showTab('http', this)">HTTP</div>
+      <div class="tab" onclick="showTab('tracker', this)">Tracker</div>
       <div class="tab" onclick="showTab('bluetooth', this)">Bluetooth</div>
     </div>
 
@@ -1571,6 +1572,72 @@
       </div>
 
       <!-- BLUETOOTH PANEL -->
+      <!-- TRACKER PANEL -->
+      <div class="panel" id="panel-tracker">
+        <div class="http-panel">
+          <h3 style="font-size:14px;color:var(--text-dim);">Rastreador &mdash; posi&ccedil;&atilde;o + telemetria via POST</h3>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Endpoint (HTTP, sem TLS)</label>
+              <input id="trkUrl" type="text" placeholder="http://seu-servidor.com/api/posicao" />
+            </div>
+            <div class="form-group" style="max-width:150px;">
+              <label>Intervalo</label>
+              <select id="trkInterval">
+                <option value="15">15 s</option>
+                <option value="30" selected>30 s</option>
+                <option value="60">60 s</option>
+                <option value="300">5 min</option>
+              </select>
+            </div>
+            <div class="form-group" style="max-width:170px;">
+              <label>Sem fix GPS</label>
+              <select id="trkFallback">
+                <option value="1" selected>Usar torre (CIPGSMLOC)</option>
+                <option value="0">N&atilde;o enviar</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button class="action-btn" onclick="trackerSendOnce()">&#128228; Enviar agora</button>
+            <button class="action-btn secondary" id="trkAutoBtn" onclick="trackerToggleAuto()">&#9201; Autom&aacute;tico: OFF</button>
+            <button class="action-btn secondary" onclick="ntpSync()">&#128340; Sincronizar hora (NTP)</button>
+            <button class="action-btn secondary" onclick="cellLocate()">&#128225; Posi&ccedil;&atilde;o por torre</button>
+            <button class="action-btn secondary" onclick="trackerPreview()">&#128065; Ver payload</button>
+          </div>
+
+          <div class="info-grid" style="grid-template-columns:repeat(4,minmax(130px,1fr));">
+            <div class="info-card">
+              <div class="card-label">Enviados</div>
+              <div class="card-value" id="trk-sent" style="font-size:15px;">0</div>
+              <div class="card-unit">pacotes</div>
+            </div>
+            <div class="info-card">
+              <div class="card-label">Falhas</div>
+              <div class="card-value" id="trk-fail" style="font-size:15px;">0</div>
+              <div class="card-unit">tentativas perdidas</div>
+            </div>
+            <div class="info-card">
+              <div class="card-label">&Uacute;ltimo status</div>
+              <div class="card-value" id="trk-status" style="font-size:15px;">--</div>
+              <div class="card-unit">+HTTPACTION</div>
+            </div>
+            <div class="info-card">
+              <div class="card-label">Origem da posi&ccedil;&atilde;o</div>
+              <div class="card-value" id="trk-src" style="font-size:14px;">--</div>
+              <div class="card-unit">GPS ou torre</div>
+            </div>
+          </div>
+
+          <div class="form-group" style="flex:1;min-height:0;">
+            <label>Payload JSON</label>
+            <div class="http-response" id="trk-payload">Clique em "Ver payload" ou envie um pacote.</div>
+          </div>
+        </div>
+      </div>
+
       <div class="panel" id="panel-bluetooth">
         <div class="bt-panel">
           <h3 style="font-size:14px;color:var(--text-dim);">Comunicação Bluetooth (Classic SPP)</h3>
@@ -2226,6 +2293,11 @@ function simulateResponse(cmd) {
       return;
     }
     if (c === 'AT+CIPSHUT') { logRx('SHUT OK'); logRx('OK'); return; }
+    if (c.startsWith('AT+HTTPDATA=')) { logRx('DOWNLOAD'); setTimeout(() => logRx('OK'), 200); return; }
+    if (c === 'AT+CNTPCID=1' || c.startsWith('AT+CNTP=')) { logRx('OK'); return; }
+    if (c === 'AT+CNTP') { logRx('OK'); logRx('+CNTP: 1'); return; }
+    if (c === 'AT+CCLK?') { logRx('+CCLK: "26/09/03,14:22:31-12"'); logRx('OK'); return; }
+    if (c.startsWith('AT+CIPGSMLOC=')) { logRx('+CIPGSMLOC: 0,-46.633308,-23.550520,2026/09/03,14:22:31'); logRx('OK'); return; }
     if (c.startsWith('AT+CGDCONT=')) { logRx('OK'); return; }
     if (c === 'AT+CGATT?') { logRx('+CGATT: 1'); logRx('OK'); return; }
     if (c === 'AT+CGREG?') { logRx('+CGREG: 0,1'); logRx('OK'); return; }
@@ -2335,7 +2407,7 @@ function simulateResponse(cmd) {
 // ============================================================
 // RESPONSE PARSER
 // ============================================================
-const APP_VERSION = 'v2.0';
+const APP_VERSION = 'v2.1';
 let lastCmdSent = '';
 
 function parseResponse(line) {
@@ -2394,8 +2466,54 @@ function sendAwait(cmd, timeoutMs = 8000) {
 
 function respHas(r, re) { return r.lines.some(l => re.test(l)); }
 
+// Espera uma linha especifica. Necessario para respostas que nao terminam em
+// OK (o "DOWNLOAD" do HTTPDATA) e para URCs que chegam depois (+HTTPACTION).
+let lineWaiters = [];
+
+function feedWaiters(line) {
+  for (let i = lineWaiters.length - 1; i >= 0; i--) {
+    const w = lineWaiters[i];
+    if (w.re.test(line)) {
+      lineWaiters.splice(i, 1);
+      clearTimeout(w.timer);
+      w.resolve(line);
+    }
+  }
+}
+
+function waitLine(re, timeoutMs) {
+  return new Promise(resolve => {
+    const w = { re, resolve };
+    w.timer = setTimeout(() => {
+      const i = lineWaiters.indexOf(w);
+      if (i >= 0) lineWaiters.splice(i, 1);
+      resolve(null);
+    }, timeoutMs);
+    lineWaiters.push(w);
+  });
+}
+
+// send() sempre acrescenta CRLF; o corpo do HTTPDATA tem que sair cru, com
+// exatamente o numero de bytes anunciado.
+async function writeRaw(text) {
+  log('tx', text.length > 160 ? text.slice(0, 160) + '\u2026' : text);
+  if (!connected) { setTimeout(() => logRx('OK'), 120); return; }
+  try {
+    if (connectedTransport === 'serial') {
+      await writer.write(new TextEncoder().encode(text));
+    } else if (connectedTransport === 'bluetooth') {
+      await sendBleText(text);
+    } else if (connectedTransport === 'websocket') {
+      wsConn.send(JSON.stringify({ type: 'send', data: text }));
+    }
+  } catch (e) {
+    log('sys', `Erro ao escrever corpo: ${e.message}`, 'err');
+  }
+}
+
 function parseResponseInner(line) {
   feedPending(line);
+  feedWaiters(line);
   if (line === 'ERROR' || line.startsWith('+CME ERROR') || line.startsWith('+CMS ERROR')) explainError(line);
 
   if (httpReadPending) {
@@ -2497,7 +2615,13 @@ function parseGNSINF(line) {
     satView: parseInt(satView) || 0,
     satUsed: parseInt(satUsed) || 0,
     cn0:     parseFloat(cn0)   || 0,
-    hdop:    hdop
+    hdop:    hdop,
+    lat:     lat ? parseFloat(lat) : null,
+    lon:     lon ? parseFloat(lon) : null,
+    alt:     alt ? parseFloat(alt) : null,
+    spd:     spd_knot ? +(parseFloat(spd_knot) * 1.852).toFixed(2) : null,
+    cog:     cog ? parseFloat(cog) : null,
+    utc:     utcTime || null
   };
 
   // --- Banner ---
@@ -2829,7 +2953,8 @@ async function sendSMS() {
 // AUTO POLL
 // ============================================================
 // Ultimo +CGNSINF recebido — base do diagnostico.
-let lastGnss = { ts: 0, run: '', fix: '', satView: 0, satUsed: 0, cn0: 0, hdop: '' };
+let lastGnss = { ts: 0, run: '', fix: '', satView: 0, satUsed: 0, cn0: 0, hdop: '',
+                 lat: null, lon: null, alt: null, spd: null, cog: null, utc: null };
 
 function parseCGNSPWR(line) {
   const m = line.match(/\+CGNSPWR:\s*(\d)/);
@@ -3328,6 +3453,205 @@ async function btSppSend() {
   }
 }
 
+
+// ============================================================
+// TRACKER \u2014 NTP + posicao (GPS ou torre) + POST JSON
+// ============================================================
+let trkTimer   = null;
+let trkSent    = 0;
+let trkFail    = 0;
+let trkImei    = '';
+let cellFix    = null;   // ultima posicao por torre
+
+function trkEl(id) { return document.getElementById(id); }
+
+function trackerLoad() {
+  try {
+    const u = localStorage.getItem('sim808.trkUrl');
+    if (u) trkEl('trkUrl').value = u;
+  } catch (_) {}
+}
+
+// O IMEI identifica o aparelho no servidor; busca uma vez e guarda.
+async function getImei() {
+  if (trkImei) return trkImei;
+  const r = await sendAwait('AT+CGSN', 8000);
+  const line = r.lines.find(l => /^\d{14,17}$/.test(l));
+  if (line) trkImei = line;
+  return trkImei;
+}
+
+// Relogio do modulo com hora real: sem isso o timestamp do pacote e 1980.
+async function ntpSync() {
+  await withCmdLock(async () => {
+    log('sys', 'Sincronizando rel\u00f3gio por NTP...', 'info');
+    await sendAwait('AT+CNTPCID=1', 8000);
+    // -12 = UTC-3 (o campo e em quartos de hora)
+    await sendAwait('AT+CNTP="pool.ntp.org",-12', 8000);
+    const r = await sendAwait('AT+CNTP', 30000);
+    const ok = respHas(r, /\+CNTP:\s*1/);
+    const clk = await sendAwait('AT+CCLK?', 8000);
+    const c = clk.lines.find(l => l.startsWith('+CCLK:'));
+    log('sys', ok ? `Rel\u00f3gio sincronizado \u2014 ${c || 'sem CCLK'}` : 'NTP falhou (precisa do bearer GPRS aberto).', ok ? 'ok' : 'err');
+  });
+}
+
+// Posicao aproximada pela torre. Serve de fallback: chega em segundos e
+// funciona sob laje, com erro tipico de centenas de metros a alguns km.
+async function cellLocate() {
+  return withCmdLock(cellLocateSeq);
+}
+
+async function cellLocateSeq() {
+  const r = await sendAwait('AT+CIPGSMLOC=1,1', 30000);
+  const line = r.lines.find(l => l.startsWith('+CIPGSMLOC:'));
+  if (!line) { log('sys', 'CIPGSMLOC sem resposta \u2014 o bearer GPRS precisa estar aberto.', 'err'); return null; }
+  // +CIPGSMLOC: <code>,<lon>,<lat>,<data>,<hora>   \u2014 longitude vem antes!
+  const m = line.match(/\+CIPGSMLOC:\s*(\d+),([-\d.]+),([-\d.]+),([\d/]+),([\d:]+)/);
+  if (!m || m[1] !== '0') {
+    log('sys', `CIPGSMLOC retornou c\u00f3digo ${m ? m[1] : '?'} (0 = ok). Servi\u00e7o pode estar indispon\u00edvel para este chip.`, 'err');
+    return null;
+  }
+  cellFix = { lon: parseFloat(m[2]), lat: parseFloat(m[3]), date: m[4], time: m[5] };
+  log('sys', `Posi\u00e7\u00e3o por torre: ${cellFix.lat}, ${cellFix.lon} (${cellFix.date} ${cellFix.time})`, 'ok');
+  return cellFix;
+}
+
+async function buildPayload() {
+  const imei = await getImei();
+  const csq  = await sendAwait('AT+CSQ', 8000);
+  const mR   = (csq.lines.find(l => l.startsWith('+CSQ:')) || '').match(/\+CSQ:\s*(\d+)/);
+  const rssi = mR ? parseInt(mR[1]) : 99;
+
+  const fresh = lastGnss.ts && (Date.now() - lastGnss.ts) < 30000;
+  let src = 'gps';
+  let lat = null, lon = null;
+
+  if (fresh && lastGnss.fix === '1') {
+    lat = lastGnss.lat;
+    lon = lastGnss.lon;
+  } else if (trkEl('trkFallback').value === '1') {
+    const c = await cellLocateSeq();
+    if (c) { lat = c.lat; lon = c.lon; src = 'torre'; }
+  }
+
+  if (lat === null) return null;
+
+  trkEl('trk-src').textContent = src === 'gps' ? 'GPS' : 'Torre GSM';
+  return {
+    imei,
+    src,
+    lat, lon,
+    alt:   src === 'gps' ? lastGnss.alt   : null,
+    spd:   src === 'gps' ? lastGnss.spd   : null,
+    cog:   src === 'gps' ? lastGnss.cog   : null,
+    sats:  src === 'gps' ? lastGnss.satUsed : null,
+    hdop:  src === 'gps' ? lastGnss.hdop  : null,
+    rssi:  rssi === 99 ? null : rssi,
+    dbm:   rssi === 99 ? null : (-113 + rssi * 2),
+    utc:   src === 'gps' ? lastGnss.utc : null,
+    ts:    new Date().toISOString()
+  };
+}
+
+async function trackerPreview() {
+  await withCmdLock(async () => {
+    const body = await buildPayload();
+    trkEl('trk-payload').textContent = body
+      ? JSON.stringify(body, null, 2)
+      : 'Sem posi\u00e7\u00e3o dispon\u00edvel: nenhum fix GPS recente e o fallback por torre est\u00e1 desligado ou falhou.';
+  });
+}
+
+function trackerSendOnce() { return trackerSend(); }
+
+async function trackerSend() {
+  const url = trkEl('trkUrl').value.trim();
+  if (!url) { alert('Informe o endpoint.'); return; }
+  if (/^https:/i.test(url)) {
+    log('sys', 'Endpoint https: este m\u00f3dulo n\u00e3o tem SSL. Use http:// ou um proxy.', 'err');
+    return;
+  }
+  try { localStorage.setItem('sim808.trkUrl', url); } catch (_) {}
+
+  const gpsWasPolling = !!autoGPSTimer;
+  if (gpsWasPolling) { clearInterval(autoGPSTimer); autoGPSTimer = null; syncAutoGpsBtn(); }
+  try {
+    await withCmdLock(() => trackerSendSeq(url));
+  } finally {
+    if (gpsWasPolling && !autoGPSTimer) toggleAutoGPS();
+  }
+}
+
+async function trackerSendSeq(url) {
+  const payload = await buildPayload();
+  if (!payload) {
+    log('sys', 'Nada a enviar: sem fix GPS recente e sem posi\u00e7\u00e3o por torre.', 'err');
+    trkFail++; trkEl('trk-fail').textContent = trkFail;
+    return;
+  }
+
+  const body  = JSON.stringify(payload);
+  const bytes = new TextEncoder().encode(body).length;  // HTTPDATA conta BYTES
+  trkEl('trk-payload').textContent = JSON.stringify(payload, null, 2);
+
+  await sendAwait('AT+HTTPTERM', 5000);
+  const init = await sendAwait('AT+HTTPINIT', 10000);
+  if (!init.ok) { trackerFail('HTTPINIT falhou \u2014 bearer GPRS fechado?'); return; }
+
+  await sendAwait('AT+HTTPPARA="CID",1', 8000);
+  await sendAwait(`AT+HTTPPARA="URL","${url.replace(/"/g, '%22')}"`, 8000);
+  await sendAwait('AT+HTTPPARA="CONTENT","application/json"', 8000);
+
+  // HTTPDATA: o modulo responde DOWNLOAD, recebe exatamente N bytes crus,
+  // e so entao devolve OK.
+  send(`AT+HTTPDATA=${bytes},15000`);
+  const dl = await waitLine(/^DOWNLOAD/, 10000);
+  if (!dl) { trackerFail('M\u00f3dulo n\u00e3o entrou em modo DOWNLOAD (AT+HTTPDATA).'); return; }
+  await writeRaw(body);
+  const okData = await waitLine(/^(OK|ERROR)/, 20000);
+  if (okData !== 'OK') { trackerFail('M\u00f3dulo recusou o corpo do POST.'); return; }
+
+  send('AT+HTTPACTION=1');
+  const act = await waitLine(/^\+HTTPACTION:/, 60000);
+  if (!act) { trackerFail('Sem +HTTPACTION em 60s \u2014 rede travada.'); return; }
+
+  const m = act.match(/\+HTTPACTION:\s*\d,(\d+),(\d+)/);
+  const status = m ? m[1] : '?';
+  trkEl('trk-status').textContent = status;
+  if (status === '200' || status === '201' || status === '204') {
+    trkSent++; trkEl('trk-sent').textContent = trkSent;
+    log('sys', `Pacote enviado (${bytes} bytes) \u2014 HTTP ${status}`, 'ok');
+  } else {
+    trackerFail(`Servidor/m\u00f3dulo retornou ${status}`);
+  }
+}
+
+function trackerFail(msg) {
+  trkFail++;
+  trkEl('trk-fail').textContent = trkFail;
+  trkEl('trk-status').textContent = 'erro';
+  log('sys', `Tracker: ${msg}`, 'err');
+}
+
+function trackerToggleAuto() {
+  const btn = trkEl('trkAutoBtn');
+  if (trkTimer) {
+    clearInterval(trkTimer);
+    trkTimer = null;
+    btn.textContent = '\u23F1 Autom\u00e1tico: OFF';
+    btn.classList.add('secondary');
+    log('sys', 'Tracker autom\u00e1tico desligado.', 'info');
+    return;
+  }
+  const secs = parseInt(trkEl('trkInterval').value, 10) || 30;
+  trkTimer = setInterval(trackerSend, secs * 1000);
+  btn.textContent = `\u23F1 Autom\u00e1tico: ${secs}s`;
+  btn.classList.remove('secondary');
+  log('sys', `Tracker autom\u00e1tico ligado (${secs}s).`, 'info');
+  trackerSend();
+}
+
 // ── GPRS bearer ──────────────────────────────────────
 // O stack HTTP do SIM808 usa o bearer 1; sem SAPBR aberto todo HTTPACTION
 // volta 601. A APN fica no localStorage porque é sempre o mesmo chip.
@@ -3797,6 +4121,7 @@ window.addEventListener('load', () => {
   document.getElementById('appVersion').textContent = APP_VERSION;
   syncAutoGpsBtn();
   loadApn();
+  trackerLoad();
   setInterval(updateGpsAge, 1000);
   log('sys', `SIM808 Controller ${APP_VERSION} iniciado.`, 'info');
   log('sys', 'Clique em "Conectar" para abrir porta serial (Web Serial API).', 'info');
