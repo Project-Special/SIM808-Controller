@@ -1485,8 +1485,13 @@
           <div class="form-row">
             <div class="form-group">
               <label>APN</label>
-              <input id="httpApn" type="text" list="apnList" placeholder="claro.com.br" />
+              <input id="httpApn" type="text" list="apnList" placeholder="em" onchange="applyApnPreset()" />
               <datalist id="apnList">
+                <option value="em">EMnify (IoT)</option>
+                <option value="iot.1nce.net">1NCE (IoT)</option>
+                <option value="hologram">Hologram (IoT)</option>
+                <option value="super">Twilio Super SIM (IoT)</option>
+                <option value="soracom.io">Soracom (IoT)</option>
                 <option value="claro.com.br">Claro</option>
                 <option value="zap.vivo.com.br">Vivo</option>
                 <option value="timbrasil.br">TIM</option>
@@ -2221,6 +2226,7 @@ function simulateResponse(cmd) {
       return;
     }
     if (c === 'AT+CIPSHUT') { logRx('SHUT OK'); logRx('OK'); return; }
+    if (c.startsWith('AT+CGDCONT=')) { logRx('OK'); return; }
     if (c === 'AT+CGATT?') { logRx('+CGATT: 1'); logRx('OK'); return; }
     if (c === 'AT+CGREG?') { logRx('+CGREG: 0,1'); logRx('OK'); return; }
     if (c.startsWith('AT+SAPBR=3,')) { logRx('OK'); return; }
@@ -2329,7 +2335,7 @@ function simulateResponse(cmd) {
 // ============================================================
 // RESPONSE PARSER
 // ============================================================
-const APP_VERSION = 'v1.7';
+const APP_VERSION = 'v1.8';
 let lastCmdSent = '';
 
 function parseResponse(line) {
@@ -3331,6 +3337,30 @@ function loadApn() {
   } catch (_) {}
 }
 
+// APN -> credenciais. Chips IoT quase sempre dispensam USER/PWD, e mandar
+// autenticacao preenchida faz a rede recusar o contexto.
+const APN_PRESETS = {
+  'em':             { user: '',      pass: ''      },
+  'iot.1nce.net':   { user: '',      pass: ''      },
+  'hologram':       { user: '',      pass: ''      },
+  'super':          { user: '',      pass: ''      },
+  'soracom.io':     { user: 'sora',  pass: 'sora'  },
+  'claro.com.br':   { user: 'claro', pass: 'claro' },
+  'zap.vivo.com.br':{ user: 'vivo',  pass: 'vivo'  },
+  'timbrasil.br':   { user: 'tim',   pass: 'tim'   },
+  'gprs.oi.com.br': { user: 'oi',    pass: 'oi'    },
+  'java.algar.com.br': { user: 'algar', pass: 'algar' }
+};
+
+function applyApnPreset() {
+  const apn = document.getElementById('httpApn').value.trim().toLowerCase();
+  const preset = APN_PRESETS[apn];
+  if (!preset) return;
+  document.getElementById('httpApnUser').value = preset.user;
+  document.getElementById('httpApnPass').value = preset.pass;
+  log('sys', `APN "${apn}": usu\u00e1rio/senha ${preset.user ? `definidos como "${preset.user}"` : 'deixados em branco'}.`, 'info');
+}
+
 function saveApn(apn, user, pass) {
   try { localStorage.setItem('sim808.apn', JSON.stringify({ apn, user, pass })); } catch (_) {}
 }
@@ -3361,6 +3391,9 @@ async function gprsConnectSeq(apn, user, pass) {
   // ERROR direto. CIPSHUT devolve tudo ao estado inicial.
   await sendAwait('AT+CIPSHUT', 15000);
   await sendAwait('AT+SAPBR=0,1', 8000);
+
+  // Muitos SIMs M2M so anexam depois que o contexto PDP 1 aponta para a APN.
+  await sendAwait(`AT+CGDCONT=1,"IP","${apn}"`, 10000);
 
   let att = await sendAwait('AT+CGATT?', 10000);
   if (!respHas(att, /\+CGATT:\s*1/)) {
