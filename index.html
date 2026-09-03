@@ -2570,7 +2570,7 @@ function simulateResponse(cmd) {
 // ============================================================
 // RESPONSE PARSER
 // ============================================================
-const APP_VERSION = 'v2.7';
+const APP_VERSION = 'v2.8';
 let lastCmdSent = '';
 
 function parseResponse(line) {
@@ -2586,6 +2586,8 @@ function explainError(line) {
   const c = lastCmdSent;
   if (c.startsWith('AT+CGNS') || c.startsWith('AT+CGPS')) {
     log('sys', `O módulo REJEITOU ${c} (${line}). Comandos GNSS não existem neste firmware — placas SIM800/SIM800L não têm GPS. Confirme o modelo com ATI.`, 'err');
+  } else if (c === 'AT+SAPBR=0,1') {
+    log('sys', 'AT+SAPBR=0,1 retornou ERROR porque n\u00e3o havia bearer aberto \u2014 esperado na limpeza inicial.', 'info');
   } else if (c === 'AT+HTTPTERM') {
     log('sys', 'AT+HTTPTERM retornou ERROR porque n\u00e3o havia sess\u00e3o HTTP aberta \u2014 e esperado, a sequ\u00eancia continua.', 'info');
   } else if (c.startsWith('AT+CSQ') || c.startsWith('AT+CREG') || c.startsWith('AT+COPS') || c.startsWith('AT+CPIN') || c.startsWith('AT+CSMINS') || c.startsWith('AT+CGATT')) {
@@ -4267,7 +4269,19 @@ async function gprsClose() {
 
 function bearerIsOpen(r) { return respHas(r, /\+SAPBR:\s*\d+,\s*1,/); }
 
+// Enquanto true, um +SAPBR "Fechado" e o resultado esperado, nao um problema.
+let gprsClosing = false;
+
 async function gprsCloseSeq() {
+  gprsClosing = true;
+  try {
+    await gprsCloseInner();
+  } finally {
+    gprsClosing = false;
+  }
+}
+
+async function gprsCloseInner() {
   await sendAwait('AT+HTTPTERM', 8000);
   await sendAwait('AT+SAPBR=0,1', 30000);   // pode demorar: negocia com a rede
   let st = await sendAwait('AT+SAPBR=2,1', 10000);
@@ -4303,6 +4317,10 @@ function parseSAPBR(line) {
     log('sys', `Bearer GPRS aberto — IP ${ip || '(sem IP)'}`, 'ok');
     setBtnState('gprsBtn', 'ok', `\u2713 Conectado ${ip || ''}`.trim());
   } else {
+    if (gprsClosing) {
+      log('sys', `Bearer GPRS: ${map[st] || st}.`, 'info');
+      return;
+    }
     log('sys', `Bearer GPRS: ${map[st] || st} — rode "Conectar GPRS" antes da requisição.`, 'err');
     // "Fechando/Fechado" no meio de uma tentativa ainda nao e veredito.
     const b = document.getElementById('gprsBtn');
