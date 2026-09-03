@@ -1648,7 +1648,7 @@ let fixSearchStart = null;
 let autoSignalTimer = null;
 let readBuffer = '';
 let simHttpInited = false;
-let simHttpUrl = 'https://httpbin.org/get';
+let simHttpUrl = 'http://httpbin.org/get';
 let simHttpLastBody = '';
 let httpReadPending = false;
 let simBtPowerOn = false;
@@ -2335,7 +2335,7 @@ function simulateResponse(cmd) {
 // ============================================================
 // RESPONSE PARSER
 // ============================================================
-const APP_VERSION = 'v1.9';
+const APP_VERSION = 'v2.0';
 let lastCmdSent = '';
 
 function parseResponse(line) {
@@ -3479,6 +3479,9 @@ function parseSAPBR(line) {
 // Sequência completa: na mão é preciso acertar HTTPINIT → CID → URL → ACTION,
 // e qualquer passo fora de ordem devolve ERROR.
 let lastHttpWasHttps = false;
+// AT+HTTPSSL=1 com ERROR e permanente: o firmware nao tem SSL compilado.
+let moduleHasSsl = null;
+try { moduleHasSsl = JSON.parse(localStorage.getItem('sim808.ssl')); } catch (_) {}
 
 async function httpRequest() {
   const url = document.getElementById('httpUrlInput').value.trim();
@@ -3505,6 +3508,13 @@ async function httpRequestSeq(url, method) {
   const isHttps = /^https:/i.test(url);
   lastHttpWasHttps = isHttps;
 
+  // Ja sabemos que este modulo nao faz TLS: nao vale gastar a sequencia toda.
+  if (isHttps && moduleHasSsl === false) {
+    log('sys', 'Este modulo ja respondeu ERROR ao AT+HTTPSSL: nao tem SSL. Troque a URL para http:// \u2014 a requisi\u00e7\u00e3o nem foi enviada.', 'err');
+    document.getElementById('http-state').textContent = 'HTTPS indispon\u00edvel';
+    return;
+  }
+
   document.getElementById('http-method').textContent = ({0:'GET',1:'POST',2:'HEAD'}[method]);
   document.getElementById('http-state').textContent  = 'Executando a\u00e7\u00e3o';
   document.getElementById('http-status').textContent = '--';
@@ -3528,9 +3538,13 @@ async function httpRequestSeq(url, method) {
     if (!ssl.ok) {
       // Sem SSL o modulo nao entende o esquema https e devolve 603, que parece
       // erro de DNS e manda o diagnostico para o lado errado.
+      moduleHasSsl = false;
+      try { localStorage.setItem('sim808.ssl', 'false'); } catch (_) {}
       httpAbort('AT+HTTPSSL=1 retornou ERROR: este firmware do modulo nao tem SSL, entao HTTPS e imposs\u00edvel aqui \u2014 nem adianta insistir. Troque a URL para http:// (ou ponha um proxy HTTP na frente do servi\u00e7o).');
       return;
     }
+    moduleHasSsl = true;
+    try { localStorage.setItem('sim808.ssl', 'true'); } catch (_) {}
   }
 
   await sendAwait(`AT+HTTPACTION=${method}`, 10000);
@@ -3555,11 +3569,11 @@ function httpInit() {
   const st = document.getElementById('http-state');
   if (st) st.textContent = 'Inicializado';
   const input = document.getElementById('httpUrlInput');
-  if (input) input.value = simHttpUrl || input.value;
+  if (input && !input.value.trim()) input.value = simHttpUrl;
 }
 
 function promptHttpURL() {
-  const current = simHttpUrl || 'https://httpbin.org/get';
+  const current = simHttpUrl || 'http://httpbin.org/get';
   const url = prompt('URL para HTTP (ex: https://httpbin.org/get):', current);
   if (!url) return;
   const sanitized = url.replace(/"/g, '%22');
