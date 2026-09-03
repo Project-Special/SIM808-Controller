@@ -1282,6 +1282,10 @@
             onkeydown="handleKey(event)" autocomplete="off" />
           <button class="send-btn" onclick="sendFromInput()">Enviar</button>
           <button class="clear-btn" onclick="clearTerminal()">Limpar</button>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim);white-space:nowrap;cursor:pointer;">
+            <input type="checkbox" id="hideGnss" onchange="toggleHideGnss()" />
+            Ocultar GPS
+          </label>
         </div>
       </div>
 
@@ -2119,7 +2123,16 @@ async function disconnect() {
   connectedTransport = null;
   setStatus('disconnected');
   document.getElementById('connInfo').textContent = '';
-  log('sys', 'Desconectado.', 'info');
+
+  // Sem isso os timers continuam mandando comandos, o send() cai na simulacao
+  // e o painel/mapa passam a exibir posicao FALSA como se fosse do modulo.
+  if (autoGPSTimer)    { clearInterval(autoGPSTimer);    autoGPSTimer = null; syncAutoGpsBtn(); }
+  if (autoSignalTimer) { clearInterval(autoSignalTimer); autoSignalTimer = null; }
+  if (trkTimer)        { clearInterval(trkTimer);        trkTimer = null;
+                         const b = document.getElementById('trkAutoBtn');
+                         if (b) { b.textContent = '\u23F1 Autom\u00e1tico: OFF'; b.classList.add('secondary'); } }
+
+  log('sys', 'Desconectado \u2014 polls interrompidos.', 'info');
 }
 
 async function startReading() {
@@ -2529,7 +2542,7 @@ function simulateResponse(cmd) {
 // ============================================================
 // RESPONSE PARSER
 // ============================================================
-const APP_VERSION = 'v2.3';
+const APP_VERSION = 'v2.4';
 let lastCmdSent = '';
 
 function parseResponse(line) {
@@ -3357,7 +3370,27 @@ function setStatus(state) {
   }
 }
 
+// O poll de 5s enche o terminal de CGNSINF e esconde tudo o mais. O filtro
+// e so de exibicao: os parsers e o painel continuam recebendo os frames.
+let hideGnssTraffic = false;
+let lastLineWasGnss = false;
+
+function toggleHideGnss() {
+  hideGnssTraffic = document.getElementById('hideGnss').checked;
+  try { localStorage.setItem('sim808.hideGnss', hideGnssTraffic ? '1' : '0'); } catch (_) {}
+}
+
+function isGnssNoise(dir, msg) {
+  if (!hideGnssTraffic) return false;
+  if (/^(AT\+CGNSINF|\+CGNSINF:|\+UGNSINF:)/.test(msg)) { lastLineWasGnss = true; return true; }
+  // o OK que fecha a resposta do CGNSINF vira ruido sozinho
+  if (dir === 'rx' && msg === 'OK' && lastLineWasGnss) { lastLineWasGnss = false; return true; }
+  lastLineWasGnss = false;
+  return false;
+}
+
 function log(dir, msg, cls) {
+  if (isGnssNoise(dir, msg)) return;
   const term = document.getElementById('terminal');
   const entry = document.createElement('div');
   entry.className = 'log-entry';
@@ -4500,6 +4533,12 @@ window.addEventListener('load', () => {
   syncAutoGpsBtn();
   loadApn();
   trackerLoad();
+  try {
+    if (localStorage.getItem('sim808.hideGnss') === '1') {
+      document.getElementById('hideGnss').checked = true;
+      hideGnssTraffic = true;
+    }
+  } catch (_) {}
   setInterval(updateGpsAge, 1000);
   setInterval(dashRefresh, 2000);
   log('sys', `SIM808 Controller ${APP_VERSION} iniciado.`, 'info');
